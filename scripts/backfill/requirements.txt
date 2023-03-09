@@ -1,0 +1,4 @@
+beautifulsoup4
+google-cloud-pubsub
+requests
+tqdm
