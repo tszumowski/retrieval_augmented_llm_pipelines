@@ -1,2 +1,3 @@
 openai
 pinecone-client
+youtube_transcript_api

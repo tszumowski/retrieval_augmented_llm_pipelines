@@ -3,3 +3,4 @@ google-cloud-pubsub
 requests
 tqdm
 youtube_transcript_api
+pytube
