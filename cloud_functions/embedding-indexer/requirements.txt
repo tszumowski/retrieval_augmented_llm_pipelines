@@ -1,2 +1,5 @@
 openai
 pinecone-client
+pytube
+retry
+youtube_transcript_api
