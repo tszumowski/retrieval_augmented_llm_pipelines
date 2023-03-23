@@ -81,3 +81,45 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logging.error(f"Error getting publish date for {url}: {e}")
         return None
+
+
+def create_snippets(
+    videos: List[Dict[str, Any]], min_words: int = 0
+) -> List[Dict[str, Any]]:
+    """
+    Create publishable snippets from a list of videos. Each video containts a list of
+    transcript snippets. This function will create a record for each snippet.
+
+    Args:
+        videos: A list of videos. Each video is a dict with at least `transcript` key.
+        min_words: The minimum number of words in a snippet to be included.
+
+    Returns:
+        records: A list of generic records. Each record is a dict with `attributes`
+            and `text` keys.
+    """
+    records = list()
+    for video in videos:
+        if not video["transcript"]:
+            continue
+        # create a record for each transcript line
+        for snippet in video["transcript"]:
+            n_words = len(snippet["text"].split())
+            if n_words < min_words:
+                continue
+            attributes = {
+                "source": "youtube",
+                "video_id": video["id"],
+                "title": video["title"],
+                "url_base": video["url"],
+                "url": f"{video['url']}&t={snippet['start']}",
+                "start": str(snippet["start"]),
+                "duration": str(snippet["duration"]),
+                "channel": video["channel"],
+                "publish_date": video["publish_date"].strftime("%Y-%m-%d"),
+            }
+            text = snippet["text"]
+            record = {"attributes": attributes, "text": text}
+            records.append(record)
+
+    return records

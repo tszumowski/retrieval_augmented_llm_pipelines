@@ -41,7 +41,7 @@ sys.path.append(
 )
 
 # import get_transcript_from_url from youtube utils
-from youtube import get_transcript_from_id, get_video_info
+from youtube import create_snippets, get_transcript_from_id, get_video_info
 
 # Static variables
 DEFAULT_N_THREADS = int(os.cpu_count() * 2)
@@ -233,10 +233,6 @@ def main(
         videos = filter_videos_by_skip_file(videos, skip_file)
         logging.info(f"Found {len(videos)} videos after filtering.")
 
-    import random
-
-    videos = random.sample(videos, 3)
-
     # Get publish date in parallel for all videos using joblib threads
     logging.info("Getting publish dates for videos...")
     with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
@@ -290,29 +286,7 @@ def main(
         logging.info("Done.")
 
     # Need to take each transcript record and create a unique publish record
-    records = list()
-    for video in videos:
-        if not video["transcript"]:
-            continue
-        # create a record for each transcript line
-        for snippet in video["transcript"]:
-            n_words = len(snippet["text"].split())
-            if n_words < min_words:
-                continue
-            attributes = {
-                "source": "youtube",
-                "video_id": video["id"],
-                "title": video["title"],
-                "url_base": video["url"],
-                "url": f"{video['url']}&t={snippet['start']}",
-                "start": str(snippet["start"]),
-                "duration": str(snippet["duration"]),
-                "channel": video["channel"],
-                "publish_date": video["publish_date"].strftime("%Y-%m-%d"),
-            }
-            text = snippet["text"]
-            record = {"attributes": attributes, "text": text}
-            records.append(record)
+    records = create_snippets(videos, min_words)
 
     # Publish to Pub/Sub
     if project_id and topic_name:
