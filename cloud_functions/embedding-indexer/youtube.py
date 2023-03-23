@@ -42,10 +42,17 @@ def get_transcript_from_id(
             text += " "
             text += entry["text"]
         else:
-            transcript.append({"text": text, "start": start, "duration": chunk_size})
+            # determine actual duration of text
+            duration = int(entry["start"] - start)
+            transcript.append({"text": text, "start": int(start), "duration": duration})
             start = end
-            end += chunk_size
+            end += int(entry["start"])
             text = entry["text"]
+    # If there is any text left over, add it to the transcript
+    if text:
+        end_time = response[-1]["start"] + response[-1]["duration"]
+        duration = int(end_time - start)
+        transcript.append({"text": text, "start": int(start), "duration": duration})
 
     return transcript
 
@@ -75,7 +82,7 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
             "id": video_id,
             "title": title,
             "description": description,
-            "channel_name": channel_name,
+            "channel": channel_name,
             "publish_date": publish_date,
         }
 
@@ -153,7 +160,7 @@ def extract_transcript_snippets_from_url(
 
     # Get the transcript
     try:
-        transcript = get_transcript_from_id(video_info["video_id"], chunk_size)
+        transcript = get_transcript_from_id(video_info["id"], chunk_size)
     except Exception as e:
         logging.error(f"Error getting transcript for {url}: {e}")
         return None
@@ -169,3 +176,12 @@ def extract_transcript_snippets_from_url(
     video_snippets = create_snippets([video_info], min_words=min_words)
 
     return video_snippets
+
+
+if __name__ == "__main__":
+    url = "https://www.youtube.com/watch?v=-UrdExQW0cs"
+    video_snippets = extract_transcript_snippets_from_url(url, min_words=0)
+    for i, v in enumerate(video_snippets, 1):
+        print(f"Snippet {i}:\n----------------\n")
+        print(v)
+        print("\n\n")
