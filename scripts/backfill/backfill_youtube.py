@@ -15,7 +15,7 @@ Usage:
             --skip_file=skip.csv \
             --project_id=liquid-champion-195421 \
             --topic_name=embedding-indexer \
-            --min_words=100 
+            --min_words=100
 
     Note: The min_date and max_date are optional. If not provided, the script will
     scrape all videos in the playlist. See the --help flag for more details.
@@ -31,12 +31,9 @@ from typing import Any, Dict, List, Optional
 from concurrent import futures
 from google.cloud import pubsub_v1
 from tqdm import tqdm
-from pytube import YouTube
 import logging
 import quopri
 import json
-
-import sys
 
 # add ../cloud_functions/embedding-indexer to path to access youtube utils
 sys.path.append(
@@ -44,32 +41,10 @@ sys.path.append(
 )
 
 # import get_transcript_from_url from youtube utils
-from youtube import get_transcript_from_id
+from youtube import get_transcript_from_id, get_video_info
 
 # Static variables
 DEFAULT_N_THREADS = int(os.cpu_count() * 2)
-
-
-def get_video_publish_date(url: str) -> Optional[datetime.datetime]:
-    """Get the publish date of a YouTube video.
-
-    Args:
-        url (str): The URL of the YouTube video.
-
-    Returns:
-        Optional[datetime.datetime]: The publish date of the video.
-    """
-    try:
-        # Initialize the YouTube object with the video URL
-        yt = YouTube(url)
-
-        # Get the publish date of the video
-        publish_date = yt.publish_date
-
-        return publish_date
-    except Exception as e:
-        logging.error(f"Error getting publish date for {url}: {e}")
-        return None
 
 
 def extract_videos_from_likes_mht(mht_file: str) -> List[Dict[str, Any]]:
@@ -258,10 +233,16 @@ def main(
         videos = filter_videos_by_skip_file(videos, skip_file)
         logging.info(f"Found {len(videos)} videos after filtering.")
 
+    import random
+
+    videos = random.sample(videos, 3)
+
     # Get publish date in parallel for all videos using joblib threads
     logging.info("Getting publish dates for videos...")
     with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
-        publish_dates = executor.map(get_video_publish_date, [v["url"] for v in videos])
+        video_infos = executor.map(get_video_info, [v["url"] for v in videos])
+    video_infos = list(video_infos)
+    publish_dates = [v["publish_date"] for v in video_infos]
     logging.info("Done. Filtering videos without publish dates...")
 
     # Add publish dates to videos
@@ -279,7 +260,7 @@ def main(
     logging.info(f"Found {len(videos)}/{orig_len} videos with publish dates")
 
     # filter out videos that don't meet date criteria
-    logging.info(f"Filtering videos by date...")
+    logging.info("Filtering videos by date...")
     if min_date:
         videos = [v for v in videos if min_date <= v["publish_date"]]
     if max_date:
