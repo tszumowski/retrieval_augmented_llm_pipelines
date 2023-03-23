@@ -9,13 +9,13 @@ Usage:
 4. Create a CSV file with single column entries any keywords in the title or account
     name you want to exclude from the scrape.
 5. Run the script. Example Usage:
-    python backfill_youtube.py \
-        --input_file=[PATH_TO_HTML_FILE] \
-        --project_id=[PROJECT_ID] \
-        --topic_name=[TOPIC_NAME] \
-        --output_file=[PATH_TO_OUTPUT_FILE] \
-        --min_date=[YYYY-MM-DD] \
-        --max_date=[YiYY-MM-DD] \
+        python3 scripts/backfill/backfill_youtube.py \
+            --input_file=youtube_video_likes.mht \
+            --output_file=youtube_video_likes-parsed.json \
+            --skip_file=skip.csv \
+            --project_id=liquid-champion-195421 \
+            --topic_name=embedding-indexer \
+            --min_words=100 
 
     Note: The min_date and max_date are optional. If not provided, the script will
     scrape all videos in the playlist. See the --help flag for more details.
@@ -133,6 +133,89 @@ def extract_videos_from_likes_mht(mht_file: str) -> List[Dict[str, Any]]:
     return videos
 
 
+def publish_video_snippets(
+    project_id: str,
+    topic_name: str,
+    records: List[Dict[str, Any]],
+) -> List[futures.Future]:
+    """
+    Publishes video snippets to a Pub/Sub topic.
+
+    Args:
+        project_id: The GCP project ID.
+        topic_name: The name of the Pub/Sub topic.
+        records: A list of records to publish.
+
+    Returns:
+        publish_futures: A list of futures for the publish events.
+
+    """
+    # Initialize a Publisher client.
+    publisher = pubsub_v1.PublisherClient()
+
+    # Define the topic path.
+    topic_path = publisher.topic_path(project_id, topic_name)
+    logging.info(f"Topic path: {topic_path}")
+
+    # Publish messages to the topic, extracting the main body text from the
+    # HTML file.
+    logging.info(f"Publishing {len(records)} records to Pub/Sub...")
+    total_processed = 0
+    publish_futures = list()
+    for record in tqdm(records):
+        text = record["text"]
+        attributes = record["attributes"]
+        future = publisher.publish(topic_path, data=text.encode("utf-8"), **attributes)
+        publish_futures.append(future)
+        total_processed += 1
+
+    # Wait for all the publish futures to resolve before reporting complete.
+    print(f"Waiting for {len(publish_futures)} publish events to complete ...")
+    futures.wait(publish_futures, return_when=futures.ALL_COMPLETED)
+
+    print(f"Done! Published {total_processed} / {len(records)} video snippets.")
+
+    return publish_futures
+
+
+def filter_videos_by_skip_file(
+    videos: List[Dict[str, Any]], skip_file: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Filters out videos that are in the skip file.
+
+    Args:
+        videos: A list of videos.
+        skip_file: The path to the CSV skip file
+
+    Returns:
+        videos: A list of videos.
+    """
+    if skip_file is None:
+        logging.warning("No skip file provided. Skipping filtering.")
+        return videos
+
+    # Load the skip file
+    with open(skip_file, "r") as file:
+        skip_ids = [line.strip() for line in file.readlines()]
+
+    # Make all IDs lowercase
+    skip_ids = [id.lower() for id in skip_ids]
+
+    # look for any skip_id in title or channel of video
+    # the skip_id can be in any part of the title or any part of the channel
+    keep_videos = list()
+    for video in videos:
+        # check if video["title"] or video["channel"] contains any of the skip_ids
+        if any(skip_id in video["title"].lower() for skip_id in skip_ids) or any(
+            skip_id in video["channel"].lower() for skip_id in skip_ids
+        ):
+            continue
+        keep_videos.append(video)
+
+    return keep_videos
+
+
 def main(
     input_file: str,
     project_id: str,
@@ -142,6 +225,8 @@ def main(
     max_date: Optional[datetime.datetime] = None,
     min_words: int = 0,
     n_threads: int = DEFAULT_N_THREADS,
+    chunk_size: int = 300,
+    skip_file: Optional[str] = None,
 ):
     """
     Main function.
@@ -155,6 +240,9 @@ def main(
         max_date: The maximum date to scrape.
         min_words: The minimum number of words in the transcript snippet needed to publish
         n_threads: The number of threads to use.
+        chunk_size: The number of seconds per chunk in transcript.
+        skip_file: The path to CSV file, single column, listing keywords from channel
+            or titles to skip (case insensitive).
     """
     # extract videos from mht file
     logging.info(f"Extracting videos from {input_file}...")
@@ -164,10 +252,11 @@ def main(
         logging.info("None found. Exiting.")
         return
 
-    # TODO, TMP: sample 20 videos randomly
-    import random
-
-    videos = random.sample(videos, 20)
+    # Filter videos that match any entry in the skip file
+    if skip_file:
+        logging.info(f"Filtering videos that match keywords in {skip_file}...")
+        videos = filter_videos_by_skip_file(videos, skip_file)
+        logging.info(f"Found {len(videos)} videos after filtering.")
 
     # Get publish date in parallel for all videos using joblib threads
     logging.info("Getting publish dates for videos...")
@@ -191,13 +280,21 @@ def main(
 
     # filter out videos that don't meet date criteria
     logging.info(f"Filtering videos by date...")
-    videos = [v for v in videos if min_date <= v["publish_date"] <= max_date]
-    logging.info(f"Found {len(videos)} videos between {min_date} and {max_date}.")
+    if min_date:
+        videos = [v for v in videos if min_date <= v["publish_date"]]
+    if max_date:
+        videos = [v for v in videos if v["publish_date"] <= max_date]
+    if min_date and max_date:
+        logging.info(f"Found {len(videos)} videos between {min_date} and {max_date}.")
 
-    # Transcribe, in parallel, using get_transcript_from_url
+    # Transcribe, in parallel, using get_transcript_from_id, passing in chunk_size argument
     logging.info("Transcribing videos...")
     with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
-        transcripts = executor.map(get_transcript_from_id, [v["id"] for v in videos])
+        transcripts = executor.map(
+            get_transcript_from_id,
+            [v["id"] for v in videos],
+            [chunk_size] * len(videos),
+        )
     logging.info("Done transcribing")
 
     # Add transcripts to videos
@@ -214,16 +311,21 @@ def main(
     # Need to take each transcript record and create a unique publish record
     records = list()
     for video in videos:
+        if not video["transcript"]:
+            continue
         # create a record for each transcript line
         for snippet in video["transcript"]:
+            n_words = len(snippet["text"].split())
+            if n_words < min_words:
+                continue
             attributes = {
                 "source": "youtube",
                 "video_id": video["id"],
                 "title": video["title"],
                 "url_base": video["url"],
                 "url": f"{video['url']}&t={snippet['start']}",
-                "start": snippet["start"],
-                "end": snippet["end"],
+                "start": str(snippet["start"]),
+                "duration": str(snippet["duration"]),
                 "channel": video["channel"],
                 "publish_date": video["publish_date"].strftime("%Y-%m-%d"),
             }
@@ -232,52 +334,11 @@ def main(
             records.append(record)
 
     # Publish to Pub/Sub
-    logging.info(f"Publishing {len(records)} records to Pub/Sub...")
-    publish_video_snippets(project_id, topic_name, records)
-
-
-def publish_video_snippets(
-        project_id: str,
-        topic_name: str,
-        records: List[Dict[str, Any]],
-):
-    """
-    Publishes video snippets to a Pub/Sub topic.
-
-    Args:
-        project_id: The GCP project ID.
-        topic_name: The name of the Pub/Sub topic.
-        records: A list of records to publish.
-
-    Returns:
-        None
-
-    """
-    # Initialize a Publisher client.
-    publisher = pubsub_v1.PublisherClient()
-
-    # Define the topic path.
-    topic_path = publisher.topic_path(project_id, topic_name)
-    logging.info(f"Topic path: {topic_path}")
-
-    # Publish messages to the topic, extracting the main body text from the
-    # HTML file.
-    total_processed = 0
-    publish_futures = list()
-    for record in tqdm(records):
-        text = record["text"]
-        attributes = record["attributes"]
-        future = publisher.publish(
-            topic_path, data=text.encode("utf-8"), **attributes
-        )
-        publish_futures.append(future)
-        total_processed += 1
-
-    # Wait for all the publish futures to resolve before reporting complete.
-    print(f"Waiting for {len(publish_futures)} publish events to complete ...")
-    futures.wait(publish_futures, return_when=futures.ALL_COMPLETED)
-
-    print(f"Done! Processed {total_processed} / {len(records)} video snippets.")
+    if project_id and topic_name:
+        logging.info(f"Publishing {len(records)} records to Pub/Sub...")
+        publish_video_snippets(project_id, topic_name, records)
+    else:
+        logging.info("No project_id or topic_name provided. Not publishing.")
 
 
 # Main script part
@@ -292,13 +353,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project_id",
         type=str,
-        required=True,
+        required=False,
         help="Google Cloud Project ID",
     )
     parser.add_argument(
         "--topic_name",
         type=str,
-        required=True,
+        required=False,
         help="Google Pub/Sub topic name",
     )
     parser.add_argument(
@@ -316,8 +377,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--min_words",
         type=int,
-        default=0,
+        default=30,
         help="Minimum number of words in a file required to be indexed",
+    )
+    # add chunk_size
+    parser.add_argument(
+        "--transcript_chunk_size",
+        type=int,
+        default=300,
+        help="Number of seconds for each chunk out of transcript",
+    )
+    # add a csv file that contains a list of channels and title keywords to skip
+    parser.add_argument(
+        "--skip_file",
+        type=str,
+        default=None,
+        help="Single column CSV file with channels and title keywords to skip",
     )
 
     # cast min_date and max_date to datetime objects
@@ -337,4 +412,6 @@ if __name__ == "__main__":
         min_date=min_date,
         max_date=max_date,
         min_words=args.min_words,
+        chunk_size=args.transcript_chunk_size,
+        skip_file=args.skip_file,
     )
