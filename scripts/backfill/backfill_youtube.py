@@ -24,16 +24,15 @@ Usage:
 import argparse
 from bs4 import BeautifulSoup
 import datetime
+import json
+import logging
 import os
-import re
+import quopri
 import sys
-from typing import Any, Dict, List, Optional
 from concurrent import futures
 from google.cloud import pubsub_v1
 from tqdm import tqdm
-import logging
-import quopri
-import json
+from typing import Any, Dict, List, Optional
 
 # add ../cloud_functions/embedding-indexer to path to access youtube utils
 sys.path.append(
@@ -41,21 +40,25 @@ sys.path.append(
 )
 
 # import get_transcript_from_url from youtube utils
-from youtube import create_snippets, get_transcript_from_id, get_video_info
+from youtube import (
+    create_snippets,
+    get_transcript_from_id,
+    get_video_info_with_error_handling,
+)
 
 # Static variables
 DEFAULT_N_THREADS = int(os.cpu_count() * 2)
 
 
-def extract_videos_from_likes_mht(mht_file: str) -> List[Dict[str, Any]]:
+def extract_video_links_from_likes_mht(mht_file: str) -> List[str]:
     """
-    Extracts videos from a YouTube likes mht file.
+    Extracts video links from a YouTube likes mht file.
 
     Args:
         mht_file: The path to the mht file.
 
     Returns:
-        videos: A list of videos.
+        videos: A list of video URLs
     """
     # open the HTML file in read mode
     with open(mht_file, "r") as file:
@@ -68,44 +71,21 @@ def extract_videos_from_likes_mht(mht_file: str) -> List[Dict[str, Any]]:
     # Load the HTML file into a BeautifulSoup object
     soup = BeautifulSoup(html, "html.parser")
 
-    # find all div id "content" with class containing "ytd-playlist-video-renderer"
-    # this is the div that contains the video title, channel, and date
-    contents = soup.find_all(
-        "div", {"id": "content", "class": re.compile("ytd-playlist-video-renderer")}
-    )
+    link_objs = soup.find_all("a", {"id": "video-title"})
 
     # parse out videos one by one
-    videos = list()
-    for content in contents:
-        # extract the video-title a tag
-        title = content.find("a", {"id": "video-title"})
+    video_links = list()
+    for obj in link_objs:
+        try:
+            video_links.append(obj["href"].split("&")[0])
+        except Exception as e:
+            logging.error(f"Error parsing video link: {e}")
 
-        # get the href which is the url with split on &
-        url = title.get("href").split("&")[0]
+    logging.info(
+        f"Successfully parsed {len(video_links)} video URLs out of {len(link_objs)} candidates."
+    )
 
-        # get the video id which is the last part of the url
-        id = url.split("=")[1]
-
-        # extract the video title text
-        title = title.text.strip()
-
-        # look in div class containing ytd-channel-name tag for channel name
-        channel = content.find("div", {"class": re.compile("ytd-channel-name")})
-
-        # Look for "a" tag with class containing "yt-simple-endpoint". Take href and split on @ to right to get channel ID
-        channel_id = (
-            channel.find("a", {"class": re.compile("yt-simple-endpoint")})
-            .get("href")
-            .split("/")[-1]
-        )
-
-        # create video object
-        video = dict(url=url, title=title, id=id, channel=channel_id)
-
-        # append to videos list
-        videos.append(video)
-
-    return videos
+    return video_links
 
 
 def publish_video_snippets(
@@ -221,39 +201,28 @@ def main(
     """
     # extract videos from mht file
     logging.info(f"Extracting videos from {input_file}...")
-    videos = extract_videos_from_likes_mht(input_file)
-    logging.info(f"Found {len(videos)} videos in mht file.")
-    if len(videos) == 0:
+    video_links = extract_video_links_from_likes_mht(input_file)
+    logging.info(f"Found {len(video_links)} videos in mht file.")
+    if len(video_links) == 0:
         logging.info("None found. Exiting.")
         return
+
+    # Get video info in parallel for all videos using joblib threads
+    logging.info(f"Getting video info for {len(video_links)} video candidates...")
+    with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
+        results = executor.map(get_video_info_with_error_handling, video_links)
+
+    # Filter out any failed results and create the final list of videos
+    videos = [video for video in results if video is not None]
+    logging.info(
+        f"Successfully extracted information for {len(videos)}/{len(video_links)} videos candidates."
+    )
 
     # Filter videos that match any entry in the skip file
     if skip_file:
         logging.info(f"Filtering videos that match keywords in {skip_file}...")
         videos = filter_videos_by_skip_file(videos, skip_file)
         logging.info(f"Found {len(videos)} videos after filtering.")
-
-    # Get publish date in parallel for all videos using joblib threads
-    logging.info("Getting publish dates for videos...")
-    with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
-        video_infos = executor.map(get_video_info, [v["url"] for v in videos])
-    video_infos = list(video_infos)
-    publish_dates = [v["publish_date"] for v in video_infos]
-    logging.info("Done. Filtering videos without publish dates...")
-
-    # Add publish dates to videos
-    for video, publish_date in zip(videos, publish_dates):
-        video["publish_date"] = publish_date
-
-    # Find videos that don't have publish dates and log a warning for each
-    for video in videos:
-        if not video["publish_date"]:
-            logging.warning(f"Could not get publish date for {video['url']}")
-
-    # Remove videos that don't have publish dates
-    orig_len = len(videos)
-    videos = [v for v in videos if v["publish_date"]]
-    logging.info(f"Found {len(videos)}/{orig_len} videos with publish dates")
 
     # filter out videos that don't meet date criteria
     logging.info("Filtering videos by date...")
@@ -265,7 +234,7 @@ def main(
         logging.info(f"Found {len(videos)} videos between {min_date} and {max_date}.")
 
     # Transcribe, in parallel, using get_transcript_from_id, passing in chunk_size argument
-    logging.info("Transcribing videos...")
+    logging.info(f"Transcribing {len(videos)} videos...")
     with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
         transcripts = executor.map(
             get_transcript_from_id,
@@ -275,8 +244,19 @@ def main(
     logging.info("Done transcribing")
 
     # Add transcripts to videos
+    valid_transcript_cnt = 0
     for video, transcript in zip(videos, transcripts):
-        video["transcript"] = transcript
+        video["transcript"] = None
+        if transcript is None:
+            logging.warning(f"Transcript for {video['id']} is None.")
+        else:
+            video["transcript"] = transcript
+            valid_transcript_cnt += 1
+    logging.info(
+        f"Found transcripts for {valid_transcript_cnt} of {len(videos)} videos."
+    )
+    # remove videos without transcripts
+    videos = [v for v in videos if v["transcript"] is not None]
 
     # optionally write to output file, casting all datetime objects to strings
     if output_file:

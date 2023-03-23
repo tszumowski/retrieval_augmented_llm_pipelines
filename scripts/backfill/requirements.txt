@@ -1,6 +1,7 @@
 beautifulsoup4
 google-cloud-pubsub
 requests
+retry
 pytube
 tqdm
 youtube_transcript_api

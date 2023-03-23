@@ -8,6 +8,12 @@ import logging
 from pytube import YouTube
 from typing import Any, Dict, List, Optional
 from youtube_transcript_api import YouTubeTranscriptApi
+from retry import retry
+from retry.api import retry_call
+
+DEFAULT_RETRY_BACKOFF = 2
+DEFAULT_RETRY_DELAY = 1
+DEFAULT_RETRY_TRIES = 5
 
 
 def get_transcript_from_id(
@@ -25,7 +31,13 @@ def get_transcript_from_id(
             defined as: {"text": [TEXT], "start": [START_TIME], "duration": [DURATION]}
     """
     try:
-        response = YouTubeTranscriptApi.get_transcript(video_id)
+        response = retry_call(
+            YouTubeTranscriptApi.get_transcript,
+            fargs=[video_id],
+            tries=DEFAULT_RETRY_TRIES,
+            delay=DEFAULT_RETRY_DELAY,
+            backoff=DEFAULT_RETRY_BACKOFF,
+        )
     except Exception as e:
         print(f"Error getting transcript for YouTube Video ID {video_id}: {e}")
         return None
@@ -57,6 +69,9 @@ def get_transcript_from_id(
     return transcript
 
 
+@retry(
+    tries=DEFAULT_RETRY_TRIES, delay=DEFAULT_RETRY_DELAY, backoff=DEFAULT_RETRY_BACKOFF
+)
 def get_video_info(url: str) -> Optional[Dict[str, Any]]:
     """Get information about  a YouTube video.
 
@@ -66,29 +81,35 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
     Returns:
         video_info
     """
+    # Initialize the YouTube object with the video URL
+    yt = YouTube(url)
+
+    # Parse the video information
+    publish_date = yt.publish_date
+    video_id = yt.video_id
+    title = yt.title
+    description = yt.description
+    channel_name = yt.author
+
+    # Format as object
+    video_info = {
+        "url": url,
+        "id": video_id,
+        "title": title,
+        "description": description,
+        "channel": channel_name,
+        "publish_date": publish_date,
+    }
+
+    return video_info
+
+
+# Function to handle retries and errors when fetching video info
+def get_video_info_with_error_handling(video_link):
     try:
-        # Initialize the YouTube object with the video URL
-        yt = YouTube(url)
-
-        publish_date = yt.publish_date
-        video_id = yt.video_id
-        title = yt.title
-        description = yt.description
-        channel_name = yt.author
-
-        # Return object
-        video_info = {
-            "url": url,
-            "id": video_id,
-            "title": title,
-            "description": description,
-            "channel": channel_name,
-            "publish_date": publish_date,
-        }
-
-        return video_info
+        return get_video_info(video_link)
     except Exception as e:
-        logging.error(f"Error getting publish date for {url}: {e}")
+        logging.error(f"Error fetching video info for {video_link}: {e}")
         return None
 
 
