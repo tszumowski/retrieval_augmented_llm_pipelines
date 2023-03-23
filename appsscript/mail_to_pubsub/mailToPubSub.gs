@@ -167,8 +167,8 @@ function forwardGmailToPubSub() {
       // Remove the indexing label from the thread
       thread.removeLabel(labelObject);
 
-      // Archive it now that it's processed
-      thread.moveToArchive();
+      // [COMMENTED OUT] Optional Archive, now that it's processed
+      // thread.moveToArchive();
     }
   }
 }
