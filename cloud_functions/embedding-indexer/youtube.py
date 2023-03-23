@@ -1,5 +1,7 @@
 """
 YouTube utility functions
+
+TODO: Fix wrapepr function and parse out the backfill a bit
 """
 import logging
 
@@ -70,7 +72,7 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
         # Return object
         video_info = {
             "url": url,
-            "video_id": video_id,
+            "id": video_id,
             "title": title,
             "description": description,
             "channel_name": channel_name,
