@@ -123,3 +123,47 @@ def create_snippets(
             records.append(record)
 
     return records
+
+
+def extract_transcript_snippets_from_url(
+    url: str, min_words: int = 0, chunk_size: float = 300.0
+) -> List[Dict[str, Any]]:
+    """
+    Parse a YouTube video from a URL. By:
+    1. Getting video information / metadata
+    2. Getting the transcript
+    3. Explode the transcript into chunks of text
+
+    Return a list of dicts with the video information and the transcript snippets.
+
+    Args:
+        url: The URL of the YouTube video.
+        min_words: The minimum number of words in a snippet to be included.
+        chunk_size: The chunk size in seconds for each text snippet
+
+    Returns:
+        video_snippets: A list of dicts containing each transcript snippet
+    """
+    video_info = get_video_info(url)
+    if not video_info:
+        logging.error(f"Error getting video info for {url}")
+        return None
+
+    # Get the transcript
+    try:
+        transcript = get_transcript_from_id(video_info["video_id"], chunk_size)
+    except Exception as e:
+        logging.error(f"Error getting transcript for {url}: {e}")
+        return None
+
+    if not transcript:
+        logging.error(f"No transcript found for {url}")
+        return None
+
+    # Add the transcript to the video info
+    video_info["transcript"] = transcript
+
+    # Create a record for each transcript snippet
+    video_snippets = create_snippets([video_info], min_words=min_words)
+
+    return video_snippets
