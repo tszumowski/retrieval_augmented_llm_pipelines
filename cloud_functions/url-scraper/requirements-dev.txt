@@ -1,0 +1,9 @@
+# application requirements
+-r requirements.txt
+
+# testing requirements
+black
+cloudevents
+flake8
+functions-framework
+pytest

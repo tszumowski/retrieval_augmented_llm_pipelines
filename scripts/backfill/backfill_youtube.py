@@ -34,9 +34,9 @@ from google.cloud import pubsub_v1
 from tqdm import tqdm
 from typing import Any, Dict, List, Optional
 
-# add ../cloud_functions/embedding-indexer to path to access youtube utils
+# add ../cloud_functions to path to access youtube utils
 sys.path.append(
-    os.path.join(os.path.dirname(__file__), "../../cloud_functions/embedding-indexer")
+    os.path.join(os.path.dirname(__file__), "../../cloud_functions/url-scraper")
 )
 
 # import get_transcript_from_url from youtube utils

@@ -6,6 +6,7 @@ Script to backfill HTML
 import argparse
 import os
 import requests
+import sys
 
 from bs4 import BeautifulSoup
 from concurrent import futures
@@ -14,14 +15,12 @@ from tqdm import tqdm
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+# add ../cloud_functions to path to access youtube utils
+sys.path.append(
+    os.path.join(os.path.dirname(__file__), "../../cloud_functions/url-scraper")
+)
 
-def get_main_text(html):
-    soup = BeautifulSoup(html, "html.parser")
-    main_text = ""
-    # Note: en-note is the evernote html export tag that sometimes has the text
-    for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "en-note"]):
-        main_text += tag.get_text() + " "
-    return main_text.strip()
+from util_scrape import get_main_text
 
 
 def parse_html_input(html_path: str) -> List[str]:
