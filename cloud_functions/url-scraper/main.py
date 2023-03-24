@@ -3,47 +3,68 @@ Cloud Function to scrape a HTML text and extract hyperlinks and YouTube videos.
 It then publishes the extracted text to another Pub/Sub topic, the `embedding-indexer`
 to be indexed by the embedding model.
 
-Example deployment:
-
-gcloud functions deploy parse_and_publish \
-    --runtime python310 \
-    --trigger-topic [YOUR_TOPIC_NAME] \
-    --entry-point parse_and_publish \
-    --project [YOUR_PROJECT] \
-    --region us-east1 \
-    --memory 256Mi \
-    --timeout 540s \
-    --max-instances 1
-    --set-env-vars=PROJECT_ID=[YOUR_PROJECT],DESTINATION_TOPIC_NAME=[YOUR_TOPIC_NAME]
-
 """
 
 import base64
 import functions_framework
 import os
-import json
-import logging
 import requests
-from bs4 import BeautifulSoup
+import sys
 from google.cloud import pubsub_v1
 from typing import Any, Dict, List
 from util_scrape import get_main_text
 from youtube import extract_transcript_snippets_from_url
 import re
 
+IGNORE_TERMS = ("unsubscribe", "privacy-policy", "terms", "subscribe", "contact")
+MIN_BODY_CHARS = 1000
 
-def parse_hyperlinks(text):
-    # Parse the text for hyperlinks
-    soup = BeautifulSoup(text, "html.parser")
-    ignore_terms = ["unsubscribe", "privacy policy", "terms of service"]
 
-    def should_ignore(link):
-        href = link.get("href").lower()
-        text = link.get_text().lower()
-        return any(term in href or term in text for term in ignore_terms)
+def parse_hyperlinks(text: str) -> List[str]:
+    """
+    Parse hyperlinks from the text.
+    The links can be in the form of HTML anchor tags or plain text URLs.
 
-    # Get all links that don't contain any of the ignore terms
-    links = [a["href"] for a in soup.find_all("a", href=True) if not should_ignore(a)]
+    Args:
+        text: The text to parse.
+
+    Returns
+        links: A list of links extracted from the text.
+    """
+    # Define the regex for matching URLs
+    url_regex = re.compile(
+        r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+    )
+
+    # Extract all links from the text
+    html_links = re.findall(
+        r'<a [^>]*href=[\'"]?([^\'" >]+)[\'"]?[^>]*>(.*?)</a>', text
+    )
+
+    # Extract all links from the text
+    text_links = url_regex.findall(text)
+
+    # Filter out links that contain any of the ignore terms
+    links = []
+    for link, text in html_links:
+        if not any(
+            term.lower() in link.lower() or term.lower() in text.lower()
+            for term in IGNORE_TERMS
+        ):
+            links.append(link)
+
+    for link in text_links:
+        if link not in links and not any(
+            term.lower() in link.lower() for term in IGNORE_TERMS
+        ):
+            links.append(link)
+
+    # strip all variants of \r and \n from each link
+    for link in links:
+        link = link.replace("\r", "").replace("\n", "")
+        link = link.replace("\\r", "").replace("\\n", "")
+        link = link.replace("\\", "")
+
 
     return links
 
@@ -57,16 +78,33 @@ def is_youtube_url(url):
     return youtube_pattern.match(url)
 
 
-def process_url(url, attributes):
+def process_url(url: str, attributes: Dict[str, str]):
+    """
+    Process the URL to generate records to publish.
+
+    Args:
+        url: The URL to process.
+
+    Returns:
+        records: A list of records to publish. Each record is a dictionary with
+            the following keys:
+            - text: The text to publish
+            - attributes: A dictionary of attributes to publish with the text
+
+    """
     # Process the URL to generate records to publish
+    records = None
+
     if is_youtube_url(url):
         # If the URL is a YouTube video, extract the transcript snippets
-        records = extract_transcript_snippets_from_url(url)
+        records = extract_transcript_snippets_from_url(url, min_words=MIN_BODY_CHARS)
     else:
         # Otherwise, just get the main text from the URL
         response = requests.get(url)
         html_body = get_main_text(response.text)
-        records = [{"text": html_body, "attributes": attributes}]
+        if html_body and len(html_body) >= MIN_BODY_CHARS:
+            # If the text is long enough, publish it
+            records = [{"text": html_body, "attributes": attributes}]
     return records
 
 
@@ -106,70 +144,44 @@ def parse_and_publish(cloud_event):
     # Extract text and metadata from the Pub/Sub message
     text = str(base64.b64decode(cloud_event.data["message"]["data"]))
     attributes = cloud_event.data["message"]["attributes"]
-    logging.info(f"Received message with attributes: {attributes}")
-    logging.info(f"Found {len(text)} characters in input text.")
-    logging.info(f"Text Snippet: {text[:300]}")
+    print(f"Received message with attributes: {attributes}")
+    print(f"Found {len(text)} characters in input text.")
+    print(f"Text Snippet: {text[:300]}")
 
     # Parse hyperlinks from the text
     hyperlinks = parse_hyperlinks(text)
-    if not hyperlinks:
-        logging.error("No hyperlinks found in body")
-    all_records = []
+    print(f"Found {len(hyperlinks)} hyperlinks in input text to scrape.")
 
     # Process each hyperlink to generate records to publish
+    all_records = list()
+    valid_links = list()
     for link in hyperlinks:
         records = None
         try:
             records = process_url(link, attributes)
         except Exception as e:
-            logging.error(f"Error processing {link}: {e}")
+            print(f"Error processing {link}: {e}", file=sys.stderr)
+
+        # Add the records to the list of records to publish
         if records and len(records) > 0:
             all_records.extend(records)
+            valid_links.append(link)
+    if len(valid_links) > 0:
+        # Create list of tuples with link and number of characters in the text
+        print(f"Processed {len(valid_links)} valid hyperlinks: [{valid_links}]")
+        # print list of number of characters in all records
+        print(
+            f"Number of characters in all {len(all_records)} records: "
+            f"[{[len(record['text']) for record in all_records]}]"
+        )
 
     # Publish the records
     if len(all_records) > 0:
+        print(
+            f"Publishing {len(all_records)} scraped records from {len(valid_links)} links to "
+            f"topic {destination_topic_name}."
+        )
         publish_records(all_records, project_id, destination_topic_name)
     else:
-        logging.error("No records to publish")
-
-
-if __name__ == "__main__":
-    from cloudevents.http import CloudEvent
-
-    # Initialize logging with timestamp
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    example_message = """
-        <html>
-            <body>
-                <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">YouTube Video</a>
-                <a href="https://example.com">Example Website</a>
-            </body>
-        </html>
-    """
-
-    # Convert the example_message to a Pub/Sub message format
-    pubsub_message = {
-        "data": base64.b64encode(example_message.encode("utf-8")),
-        "attributes": {"source": "example-source"},
-    }
-
-    # Create a CloudEvent object
-    cloud_event = CloudEvent(
-        {
-            "source": "test",
-            "type": "com.example.test",
-            "subject": "Test",
-            "id": "12345",
-            "time": "2023-03-23T12:34:56.789Z",
-            "specversion": "1.0",
-        },
-        {"message": pubsub_message},
-    )
-
-    # Call the parse_and_publish function with the example cloud_event)
-    parse_and_publish(cloud_event)
+        print("No records to publish", file=sys.stderr)
+    print(f"Finished pubishing {len(all_records)} records.")
