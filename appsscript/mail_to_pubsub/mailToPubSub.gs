@@ -1,65 +1,20 @@
-/*
-Derived from:
-https://github.com/rasalt/telehealthGsuiteHcapi/blob/main/appscript/pubsubmsg.gs
-Apache 2.0
-*/
-
-function foobar() {
-  // User config
-  const projectId = "[PROJECT_NAME]";
-  const topicName = "embedding-indexer";
-  const publishAttributes = {source: "gmail"};
-
-  // Fetch access token
-  const accessToken = ScriptApp.getOAuthToken();
-
-  // Derive pubsub API URL
-  var topicPath = "projects/" + projectId + "/topics/" + topicName;
-  Logger.log(topicPath);
-  var url = "https://pubsub.googleapis.com/v1/" + topicPath + ":publish";
-  Logger.log(url);
-
-  // Build the body to publish, data is base64 encoded according to docs
-  // https://cloud.google.com/pubsub/docs/publisher#message_format
-  message = "Hello world!";
-  var body = {
-    messages: [
-      {
-        data: Utilities.base64Encode(message),
-        attributes: publishAttributes
-      },
-    ],
-  };
-
-  // Send the POST
-  var response = UrlFetchApp.fetch(url, {
-    method: "POST",
-    contentType: "application/json",
-    muteHttpExceptions: true,
-    payload: JSON.stringify(body),
-    headers: {
-      Authorization: "Bearer " + accessToken,
-    },
-    params: JSON.stringify({ topic: topicPath }),
-  });
-
-  // Look at the results
-  Logger.log("Response: " + response);
-}
-
 function forwardGmailToPubSub() {
   // User config
-  const projectId = "[PROJECT_NAME]";
-  const topicName = "embedding-indexer";
+  const projectId = "liquid-champion-195421";
+  const embeddingTopicName = "embedding-indexer";
+  const scrapeTopicName = "url-scraper";
   const processLabel = "#indexme";
   const alreadyProcessedLabel = "#indexme-processed";
+  const scrapeLabel = "#scrapeme";
+  const MIN_BODY_LEN = 1000; // Replace with desired minimum body length
 
   // Fetch access token
   const accessToken = ScriptApp.getOAuthToken();
 
   // Get all emails with the label "#indexme"
-  var labelObject = GmailApp.getUserLabelByName("#indexme");
-  var threads = labelObject.getThreads();
+  var processLabelObject = GmailApp.getUserLabelByName(processLabel);
+  var scrapeLabelObject = GmailApp.getUserLabelByName(scrapeLabel);
+  var threads = processLabelObject.getThreads();
   Logger.log(
     "Found " + threads.length + " candidate emails with label: " + processLabel
   );
@@ -72,6 +27,7 @@ function forwardGmailToPubSub() {
     var labels = thread.getLabels();
     var processedAlready = false;
     var labelFound = false;
+    var scrapeLabelFound = false;
     for (var j = 0; j < labels.length; j++) {
       if (labels[j] == null) {
         continue;
@@ -84,6 +40,9 @@ function forwardGmailToPubSub() {
       } else if (label == processLabel) {
         labelFound = true;
         continue;
+      } else if (label == scrapeLabel) {
+        scrapeLabelFound = true;
+        continue;
       }
     }
 
@@ -94,81 +53,96 @@ function forwardGmailToPubSub() {
       var sender = message.getFrom();
       var body = message.getPlainBody();
 
-      // Create the Pub/Sub message payload
-      Logger.log(
-        "Found unprocessed email with label: " +
-          label +
-          ", sender: " +
-          sender +
-          ", subject: " +
-          subject
-      );
+      // Check if body length is greater than MIN_BODY_LEN
+      if (body.length > MIN_BODY_LEN) {
+        // Send the message to the Pub/Sub topic
+        sendToPubSub(
+          projectId,
+          embeddingTopicName,
+          accessToken,
+          sender,
+          subject,
+          body
+        );
+      }
 
-      // Send the message to the Pub/Sub topic
-      Logger.log("Sending to pub/sub topic: " + topicName);
+      // If scrapeLabel is also found, send the message to the "url-scraper" Pub/Sub topic
+      if (scrapeLabelFound) {
+        sendToPubSub(
+          projectId,
+          scrapeTopicName,
+          accessToken,
+          sender,
+          subject,
+          body
+        );
 
-      /*
-      Derived from:
-      https://github.com/rasalt/telehealthGsuiteHcapi/blob/main/appscript/pubsubmsg.gs
-      Apache 2.0
-      */
-
-      // Derive pubsub API URL
-      var topicPath = "projects/" + projectId + "/topics/" + topicName;
-      var url = "https://pubsub.googleapis.com/v1/" + topicPath + ":publish";
-      var payload =
-        "Sender: " +
-        sender +
-        "\n" +
-        "Subject: " +
-        subject +
-        "\n" +
-        "Body: \n" +
-        body;
-
-      // Build the attributes to publish
-      var publishAttributes = {
-        source: "gmail",
-        sender: sender
-      };
-
-      // Build the body to publish, data is base64 encoded according to docs
-      // https://cloud.google.com/pubsub/docs/publisher#message_format
-      var pubBody = {
-        messages: [
-          {
-            data: Utilities.base64Encode(payload),
-            attributes: publishAttributes
-          },
-        ],
-      };
-
-      // Send the POST
-      var response = UrlFetchApp.fetch(url, {
-        method: "POST",
-        contentType: "application/json",
-        muteHttpExceptions: true,
-        payload: JSON.stringify(pubBody),
-        headers: {
-          Authorization: "Bearer " + accessToken,
-        },
-        params: JSON.stringify({ topic: topicPath }),
-      });
-
-      // Look at the results
-      Logger.log("Response: " + response);
+        // Remove the scraping label from the thread
+        thread.removeLabel(scrapeLabelObject);
+      }
 
       // Add the "processed" label to the thread
-      var processedLabelObject = GmailApp.getUserLabelByName(
+      var processedprocessLabelObject = GmailApp.getUserLabelByName(
         alreadyProcessedLabel
       );
-      thread.addLabel(processedLabelObject);
+      thread.addLabel(processedprocessLabelObject);
 
       // Remove the indexing label from the thread
-      thread.removeLabel(labelObject);
+      thread.removeLabel(processLabelObject);
 
       // [COMMENTED OUT] Optional Archive, now that it's processed
       // thread.moveToArchive();
     }
   }
+}
+
+function sendToPubSub(
+  projectId,
+  topicName,
+  accessToken,
+  sender,
+  subject,
+  body
+) {
+  // Derive pubsub API URL
+  var topicPath = "projects/" + projectId + "/topics/" + topicName;
+  var url = "https://pubsub.googleapis.com/v1/" + topicPath + ":publish";
+  var payload =
+    "Sender: " +
+    sender +
+    "\n" +
+    "Subject: " +
+    subject +
+    "\n" +
+    "Body: \n" +
+    body;
+
+  // Build the attributes to publish
+  var publishAttributes = {
+    source: "gmail",
+    sender: sender,
+  };
+
+  // Build the body to publish, data is base64 encoded according to docs
+  // https://cloud.google.com/pubsub/docs/publisher#message_format
+  var pubBody = {
+    messages: [
+      {
+        data: Utilities.base64Encode(payload),
+        attributes: publishAttributes,
+      },
+    ],
+  };
+
+  // Send the POST
+  var response = UrlFetchApp.fetch(url, {
+    method: "POST",
+    contentType: "application/json",
+    muteHttpExceptions: true,
+    payload: JSON.stringify(pubBody),
+    headers: {
+      Authorization: "Bearer " + accessToken,
+    },
+    params: JSON.stringify({ topic: topicPath }),
+  });
 }
