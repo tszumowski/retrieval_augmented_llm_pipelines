@@ -134,3 +134,4 @@ dmypy.json
 **/*.xml
 **/*.mht
 **/*tmp*
+**/.DS_Store
