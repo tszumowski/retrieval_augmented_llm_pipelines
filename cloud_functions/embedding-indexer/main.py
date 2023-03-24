@@ -2,6 +2,7 @@ import base64
 import functions_framework
 import config  # Update user config in this file
 import hashlib
+import logging
 import openai
 import os
 import pinecone
@@ -32,9 +33,9 @@ def process_pubsub(cloud_event):
     # Extract text and metadata from the Pub/Sub message
     msg_text = str(base64.b64decode(cloud_event.data["message"]["data"]))
     msg_attributes = cloud_event.data["message"]["attributes"]
-    print(f"Received message with attributes: {msg_attributes}")
-    print(f"Found {len(msg_text)} characters in input text.")
-    print(f"Text Snippet: {msg_text[:300]}")
+    logging.info(f"Received message with attributes: {msg_attributes}")
+    logging.info(f"Found {len(msg_text)} characters in input text.")
+    logging.info(f"Text Snippet: {msg_text[:300]}")
     default_max_chars = (
         config.N_CHARS_PER_TOKEN * config.MAX_TOKENS_PER_EMBEDDING_REQUEST
     )
@@ -42,7 +43,7 @@ def process_pubsub(cloud_event):
         msg_text[i : i + default_max_chars]
         for i in range(0, len(msg_text), default_max_chars)
     ]
-    print(f"Split into {len(texts)} chunks of text to batch.")
+    logging.info(f"Split into {len(texts)} chunks of text to batch.")
 
     # Create an embedding from input in batches of BATCH_SIZE
     embedding_batches = []
@@ -61,27 +62,27 @@ def process_pubsub(cloud_event):
                 break  # Break out of while loop if successful
             except openai.error.InvalidRequestError as e:
                 if "reduce your prompt" in str(e):
-                    print(
+                    logging.error(
                         f"One of texts in batch were too long, splitting into "
                         f"smaller chunks. max_chars was {max_chars}"
                     )
 
                     # Reduce max_chars by half
                     max_chars = max_chars // 2
-                    print(f"New max_chars is {max_chars}.")
+                    logging.info(f"New max_chars is {max_chars}.")
 
                     # Break up text into smaller chunks
-                    print(f"text_batch length was: {len(text_batch)}")
+                    logging.info(f"text_batch length was: {len(text_batch)}")
                     text_batch = [
                         text_batch[i][j : j + max_chars]
                         for i in range(len(text_batch))
                         for j in range(0, len(text_batch[i]), max_chars)
                     ]
-                    print(f"text_batch length now: {len(text_batch)}")
+                    logging.info(f"text_batch length now: {len(text_batch)}")
 
                     try_cnt += 1
                 else:
-                    print(
+                    logging.error(
                         f"Unable to embed even after {config.MAX_SPLIT_TRIES} "
                         f"reductions. Failing with error: {e}."
                     )
@@ -99,7 +100,7 @@ def process_pubsub(cloud_event):
         embedding_batches.append(embeddings)
         text_batches.append(text_batch)
 
-    print(f"Created {len(embedding_batches)} batches of embeddings.")
+    logging.info(f"Created {len(embedding_batches)} batches of embeddings.")
 
     """
     Batch Insert into Pinecone Index
@@ -131,7 +132,7 @@ def process_pubsub(cloud_event):
 
         # Upsert this batch
         index.upsert(vectors=vectors)
-    print(
+    logging.info(
         f"Inserted {vector_cnt} vectors into Pinecone index: "
         f"{config.PINECONE_INDEX_NAME}."
     )
