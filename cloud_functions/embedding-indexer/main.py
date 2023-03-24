@@ -1,3 +1,21 @@
+"""
+Cloud Function to generate embeddings from text and index them in Pinecone.
+This function is triggered by a Pub/Sub message containing contents to embed.
+
+Note: This assumes you already have the Pinecone index defined in `config.py` created.
+If you do not, run something like the following:
+
+```
+    # Create Pinecone index, if it doesn't exist. And connect.
+    if config.PINECONE_INDEX_NAME not in pinecone.list_indexes():
+        pinecone.create_index(
+            config.PINECONE_INDEX_NAME, dimension=len(embedding_batches[0][0])
+        )
+```
+
+
+"""
+
 import base64
 import functions_framework
 import config  # Update user config in this file
@@ -108,11 +126,7 @@ def process_pubsub(cloud_event):
     Batch Insert into Pinecone Index
     """
 
-    # Create Pinecone index, if it doesn't exist. And connect.
-    if config.PINECONE_INDEX_NAME not in pinecone.list_indexes():
-        pinecone.create_index(
-            config.PINECONE_INDEX_NAME, dimension=len(embedding_batches[0][0])
-        )
+    # Connect to index
     index = pinecone.Index(config.PINECONE_INDEX_NAME)
 
     # Add to index in batches
