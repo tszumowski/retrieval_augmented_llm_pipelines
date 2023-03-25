@@ -1,7 +1,7 @@
 """
 Unit tests for text cleaning functions.
 """
-from main import clean_text
+from util_scrape import clean_text
 
 
 def test_remove_html_tags():

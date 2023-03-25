@@ -1,8 +1,7 @@
 """
 YouTube utility functions
-
-TODO: Fix wrapepr function and parse out the backfill a bit
 """
+import re
 import logging
 
 from pytube import YouTube
@@ -14,6 +13,15 @@ from retry.api import retry_call
 DEFAULT_RETRY_BACKOFF = 2
 DEFAULT_RETRY_DELAY = 1
 DEFAULT_RETRY_TRIES = 5
+
+
+def is_youtube_url(url):
+    # Regex from https://stackoverflow.com/a/7936523
+    youtube_pattern = re.compile(
+        r"(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})"
+    )  # noqa: E501
+
+    return youtube_pattern.match(url)
 
 
 def get_transcript_from_id(
