@@ -30,13 +30,8 @@ Initialization
 """
 
 # Fetch the secret key from the environment variable
-API_KEY_OPENAI = os.environ.get("API_KEY_OPENAI")
-API_KEY_PINECONE = os.environ.get("API_KEY_PINECONE")
-
-if not API_KEY_OPENAI:
-    raise ValueError("API_KEY_OPENAI environment variable is not set")
-if not API_KEY_PINECONE:
-    raise ValueError("API_KEY_PINECONE environment variable  is not set")
+API_KEY_OPENAI = os.environ[]"API_KEY_OPENAI"]
+API_KEY_PINECONE = os.environ["API_KEY_PINECONE"]
 
 # Initialize OpenAI
 openai.api_key = API_KEY_OPENAI
