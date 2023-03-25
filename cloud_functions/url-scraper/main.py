@@ -104,6 +104,12 @@ def process_url(url: str, attributes: Dict[str, str]):
         if html_body and len(html_body) >= MIN_BODY_CHARS:
             # If the text is long enough, publish it
             records = [{"text": html_body, "attributes": attributes}]
+
+    # If there are records, clean the text field
+    if records:
+        for record in records:
+            record["text"] = clean_text(record["text"])
+
     return records
 
 
@@ -131,6 +137,36 @@ def publish_records(
         message = record["text"].encode("utf-8")
         attributes = record["attributes"]
         publisher.publish(topic_path, data=message, **attributes)
+
+
+def clean_text(input_text: str) -> str:
+    """
+    Cleans the text by removing HTML tags and replacing any double \ with single \.
+
+    Args:
+        input_text: The text to clean.
+
+    Returns:
+        text: The cleaned text.
+
+    """
+    # Remove HTML tags
+    text = re.sub(r"<.*?>", "", input_text)
+
+    # Remove any funny characters
+    text = text.encode("ascii", "ignore").decode()
+
+    # replace any double \ with single \
+    text = text.replace("\\t", "\t").replace("\t", " ")
+    text = text.replace("\\n", "\n").replace("\n", " ")
+
+    # Replace all duplicate spaces with single space
+    text = " ".join(text.split())
+
+    # Remove any leading or trailing spaces
+    text = text.strip()
+
+    return text
 
 
 # Triggered from a message on a Cloud Pub/Sub topic.
