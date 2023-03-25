@@ -30,7 +30,7 @@ Initialization
 """
 
 # Fetch the secret key from the environment variable
-API_KEY_OPENAI = os.environ[]"API_KEY_OPENAI"]
+API_KEY_OPENAI = os.environ["API_KEY_OPENAI"]
 API_KEY_PINECONE = os.environ["API_KEY_PINECONE"]
 
 # Initialize OpenAI

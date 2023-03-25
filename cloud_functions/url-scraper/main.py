@@ -12,69 +12,10 @@ import requests
 import sys
 from google.cloud import pubsub_v1
 from typing import Any, Dict, List
-from util_scrape import get_main_text
-from youtube import extract_transcript_snippets_from_url
-import re
+from util_scrape import clean_text, get_main_text, parse_hyperlinks
+from youtube import extract_transcript_snippets_from_url, is_youtube_url
 
-IGNORE_TERMS = ("unsubscribe", "privacy-policy", "terms", "subscribe", "contact")
 MIN_BODY_CHARS = 1000
-
-
-def parse_hyperlinks(text: str) -> List[str]:
-    """
-    Parse hyperlinks from the text.
-    The links can be in the form of HTML anchor tags or plain text URLs.
-
-    Args:
-        text: The text to parse.
-
-    Returns
-        links: A list of links extracted from the text.
-    """
-    # Define the regex for matching URLs
-    url_regex = re.compile(
-        r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-    )
-
-    # Extract all links from the text
-    html_links = re.findall(
-        r'<a [^>]*href=[\'"]?([^\'" >]+)[\'"]?[^>]*>(.*?)</a>', text
-    )
-
-    # Extract all links from the text
-    text_links = url_regex.findall(text)
-
-    # Filter out links that contain any of the ignore terms
-    links = []
-    for link, text in html_links:
-        if not any(
-            term.lower() in link.lower() or term.lower() in text.lower()
-            for term in IGNORE_TERMS
-        ):
-            links.append(link)
-
-    for link in text_links:
-        if link not in links and not any(
-            term.lower() in link.lower() for term in IGNORE_TERMS
-        ):
-            links.append(link)
-
-    # strip all variants of \r and \n from each link
-    for link in links:
-        link = link.replace("\r", "").replace("\n", "")
-        link = link.replace("\\r", "").replace("\\n", "")
-        link = link.replace("\\", "")
-
-    return links
-
-
-def is_youtube_url(url):
-    # Regex from https://stackoverflow.com/a/7936523
-    youtube_pattern = re.compile(
-        r"(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})"
-    )  # noqa: E501
-
-    return youtube_pattern.match(url)
 
 
 def process_url(url: str, attributes: Dict[str, str]):
@@ -137,36 +78,6 @@ def publish_records(
         message = record["text"].encode("utf-8")
         attributes = record["attributes"]
         publisher.publish(topic_path, data=message, **attributes)
-
-
-def clean_text(input_text: str) -> str:
-    """
-    Cleans the text by removing HTML tags and replacing any double \ with single \.
-
-    Args:
-        input_text: The text to clean.
-
-    Returns:
-        text: The cleaned text.
-
-    """
-    # Remove HTML tags
-    text = re.sub(r"<.*?>", "", input_text)
-
-    # Remove any funny characters
-    text = text.encode("ascii", "ignore").decode()
-
-    # replace any double \ with single \
-    text = text.replace("\\t", "\t").replace("\t", " ")
-    text = text.replace("\\n", "\n").replace("\n", " ")
-
-    # Replace all duplicate spaces with single space
-    text = " ".join(text.split())
-
-    # Remove any leading or trailing spaces
-    text = text.strip()
-
-    return text
 
 
 # Triggered from a message on a Cloud Pub/Sub topic.
