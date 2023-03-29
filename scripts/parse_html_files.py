@@ -20,7 +20,8 @@ sys.path.append(
     os.path.join(os.path.dirname(__file__), "../../cloud_functions/url-scraper")
 )
 
-from util_scrape import get_main_text
+from tokenization import tiktoken_len
+from util_scrape import get_main_text, clean_text
 
 
 def parse_html_input(html_path: str) -> List[str]:
@@ -87,7 +88,7 @@ def main(
     topic_name: str,
     html_paths: List[str],
     attributes: Optional[Dict[str, str]] = None,
-    min_words: Optional[int] = None,
+    min_tokens: Optional[int] = None,
 ) -> None:
     """
     Backfill HTML to Google Pub/Sub topic.
@@ -97,11 +98,11 @@ def main(
         topic_name: Google Pub/Sub topic name
         html_paths: List of any of: HTML file path, URL.
         attributes: Dictionary of attributes to add to the Pub/Sub message.
-        min_words: Minimum number of words in a file required to be indexed.
+        min_tokens: Minimum number of tokens in a file required to be indexed.
     """
-    # Default to None if min_words is not a positive integer.
-    if min_words is not None and min_words < 1:
-        min_words = None
+    # Default to None if min_tokens is not a positive integer.
+    if min_tokens is not None and min_tokens < 1:
+        min_tokens = None
 
     # Initialize a Publisher client.
     publisher = pubsub_v1.PublisherClient()
@@ -118,17 +119,17 @@ def main(
         with open(tfile, "r") as f:
             html = f.read()
         extracted_text = get_main_text(html)
-        if min_words is not None:
-            n_words = len(extracted_text.split())
-            if n_words < min_words:
+        if min_tokens is not None:
+            n_tokens = tiktoken_len(extracted_text)
+            if n_tokens < min_tokens:
                 print(
-                    f"Skipping {tfile} because it has {n_words} words, which is less "
-                    f"than the minimum of {min_words}."
+                    f"Skipping {tfile} because it has {n_tokens} tokens, which is less "
+                    f"than the minimum of {min_tokens}."
                 )
                 continue
         print(
-            f"Extracted {len(extracted_text)} characters, or approximately {n_words} "
-            f"words, from {tfile}."
+            f"Extracted {len(extracted_text)} characters, or {n_tokens} "
+            f"tokens, from {tfile}."
         )
         print(f"Snippet:\n\t{extracted_text[0:500]}\n\n")  # Prints a sample
         future = publisher.publish(
@@ -167,13 +168,13 @@ if __name__ == "__main__":
         "file path, directory of HTML files, or URL
         """,
     )
-    # Add an argument for minimum number of words in a file required
+    # Add an argument for Minimum number of tokens in a file required
     # to be indexed.
     parser.add_argument(
-        "--min_words",
+        "--min_tokens",
         type=int,
         default=0,
-        help="Minimum number of words in a file required to be indexed",
+        help="Minimum number of tokens in a file required to be indexed",
     )
     # Add attrs to parser which is a string of comma-separated key-value pairs
     # using colons to separate the key and value. For example, "key1:value1,key2:value2"
@@ -202,6 +203,6 @@ if __name__ == "__main__":
         project_id=args.project_id,
         topic_name=args.topic_name,
         html_paths=html_paths,
-        min_words=args.min_words,
+        min_tokens=args.min_tokens,
         attributes=attributes,
     )

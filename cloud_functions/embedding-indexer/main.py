@@ -20,10 +20,13 @@ import base64
 import functions_framework
 import config  # Update user config in this file
 import hashlib
+import json
 import openai
 import os
 import pinecone
-import sys
+from smart_open import open
+import time
+from tokenization import tiktoken_len, split_by_tokenization
 
 """
 Initialization
@@ -46,76 +49,46 @@ def process_pubsub(cloud_event):
     # Extract text and metadata from the Pub/Sub message
     msg_text = str(base64.b64decode(cloud_event.data["message"]["data"]))
     msg_attributes = cloud_event.data["message"]["attributes"]
+    # Add attribute "title" if doesn't exist
+    if "title" not in msg_attributes:
+        msg_attributes["title"] = "None"
+
     print(f"Received message with attributes: {msg_attributes}")
-    print(f"Found {len(msg_text)} characters in input text.")
-    print(f"Text Snippet: {msg_text[:300]}")
-    default_max_chars = (
-        config.N_CHARS_PER_TOKEN * config.MAX_TOKENS_PER_EMBEDDING_REQUEST
-    )
-    texts = [
-        msg_text[i : i + default_max_chars]
-        for i in range(0, len(msg_text), default_max_chars)
-    ]
-    print(f"Split into {len(texts)} chunks of text to batch.")
+    msg_token_len = tiktoken_len(msg_text)
+    print(f"Found {msg_token_len} tokens in input text.")
+    print(f"Text chunk: {msg_text[:300]}")
 
-    # Create an embedding from input in batches of BATCH_SIZE
-    embedding_batches = []
-    text_batches = []
-    for i in range(0, len(texts), config.BATCH_SIZE):
-        max_chars = default_max_chars  # Reset max_chars
-        text_batch = texts[i : i + config.BATCH_SIZE]
-        # Try to embed text. If we get an error, try to split the text into
-        # smaller chunks.
-        try_cnt = 0
-        while try_cnt < config.MAX_SPLIT_TRIES:
-            try:
-                res = openai.Embedding.create(
-                    input=text_batch, engine=config.EMBEDDING_MODEL
-                )
-                break  # Break out of while loop if successful
-            except openai.error.InvalidRequestError as e:
-                if "reduce your prompt" in str(e):
-                    print(
-                        f"One of texts in batch were too long, splitting into "
-                        f"smaller chunks. max_chars was {max_chars}",
-                        file=sys.stderr,
-                    )
+    chunks = [{"text": msg_text, "n_tokens": msg_token_len}]
+    if msg_token_len > config.MAX_TOKENS_INPUT:
+        # Split into chunks based on tokenization
+        chunks = split_by_tokenization(msg_text, config.TOKEN_CHUNK_SIZE)
+        print(
+            f"Split into {len(chunks)} chunks of text. Chunk sizes: "
+            f"[{[s['n_tokens'] for s in chunks]}]"
+        )
 
-                    # Reduce max_chars by half
-                    max_chars = max_chars // 2
-                    print(f"New max_chars is {max_chars}.")
+    # Run embedding one by one just in case there is an error we can catch
+    processed_chunks = list()
+    for i, chunk in enumerate(chunks, 1):
+        text = chunk["text"]
+        error_str = None
+        res = list()
 
-                    # Break up text into smaller chunks
-                    print(f"text_batch length was: {len(text_batch)}")
-                    text_batch = [
-                        text_batch[i][j : j + max_chars]
-                        for i in range(len(text_batch))
-                        for j in range(0, len(text_batch[i]), max_chars)
-                    ]
-                    print(f"text_batch length now: {len(text_batch)}")
+        try:
+            res = openai.Embedding.create(input=text, engine=config.EMBEDDING_MODEL)
+        except Exception as e:
+            error_str = str(e)
 
-                    try_cnt += 1
-                else:
-                    print(
-                        f"Unable to embed even after {config.MAX_SPLIT_TRIES} "
-                        f"reductions. Failing with error: {e}.",
-                        file=sys.stderr,
-                    )
-                    raise e
-        embeddings = [x["embedding"] for x in res["data"]]
+        if len(res) == 0:
+            print(f"Unable to embed text chunk #{i}: {error_str}. Skipping.")
+            continue
 
-        # Check that we got the right number of embeddings
-        if len(embeddings) != len(text_batch):
-            raise ValueError(
-                f"Number of embeddings ({len(embeddings)}) does not match number of "
-                f"text chunks ({len(text_batch)})."
-            )
+        embedding = res["data"][0]["embedding"]
 
         # Append to list
-        embedding_batches.append(embeddings)
-        text_batches.append(text_batch)
+        processed_chunks.append((chunk, embedding))
 
-    print(f"Created {len(embedding_batches)} batches of embeddings.")
+    print(f"Processed {len(processed_chunks)} of {len(chunks)} possible embeddings.")
 
     """
     Batch Insert into Pinecone Index
@@ -125,25 +98,46 @@ def process_pubsub(cloud_event):
     index = pinecone.Index(config.PINECONE_INDEX_NAME)
 
     # Add to index in batches
-    vector_cnt = 0
-    for i in range(len(embedding_batches)):
+    processed_vector_cnt = 0
+    for i, cur_record in enumerate(processed_chunks, 1):
         # Select batch
-        embeddings = embedding_batches[i]
-        texts = text_batches[i]
+        data, embedding = cur_record
+        text = data["text"]
+        n_tokens = data["n_tokens"]
 
         # Create vector objects
-        vectors = list()
-        for embedding, text in zip(embeddings, texts):
-            # Hash the text to get a unique vector ID
-            vector_id = hashlib.shake_256(text.encode()).hexdigest(5)
-            metadata = {"text": text}
-            metadata.update(msg_attributes)  # add pubsub attributes too (e.g. source)
-            vectors.append((vector_id, embedding, metadata))
-            vector_cnt += 1
+        # Hash the text to get a unique vector ID
+        vector_id = hashlib.shake_256(text.encode()).hexdigest(5)
 
-        # Upsert this batch
-        index.upsert(vectors=vectors)
+        # add attributes that came from Pub/Sub
+        metadata = {"text": text, "n_tokens": str(n_tokens)}
+        metadata.update(msg_attributes)
+
+        # Add incrementor to title
+        metadata["title"] = f"{metadata['title']} - {i:03d}"
+
+        # Create final vector object
+        vector = (vector_id, embedding, metadata)
+
+        # Upsert this vector
+        try:
+            index.upsert(vectors=[vector])
+        except Exception as e:
+            print(f"Unable to upsert vector {vector_id}: {e}. Skipping")
+            continue
+        processed_vector_cnt += 1
     print(
-        f"Inserted {vector_cnt} vectors into Pinecone index: "
-        f"{config.PINECONE_INDEX_NAME}."
+        f"Inserted {processed_vector_cnt} of {len(processed_chunks)} candidate vectors "
+        f"into Pinecone index: {config.PINECONE_INDEX_NAME}."
     )
+
+    # Save vector to GCS as a single JSONL for backup purposes
+    if config.BUCKET_PATH:
+        vector_filename = f"vector_{vector_id}_{int(time.time())}.jsonl"
+        bucket_path = f"{config.BUCKET_PATH}/{vector_filename}"
+        # create a JSON line with the vector ID, embedding, and metadata
+        record = {"id": vector_id, "embedding": embedding, "metadata": metadata}
+        # Force to json as strings
+        record = json.dumps(record)
+        with open(bucket_path, "w") as f:
+            f.write(record)

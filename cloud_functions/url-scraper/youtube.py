@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from youtube_transcript_api import YouTubeTranscriptApi
 from retry import retry
 from retry.api import retry_call
+from tokenization import split_by_tokenization, tiktoken_len, CHUNK_OVERLAP, CHUNK_SIZE
 
 DEFAULT_RETRY_BACKOFF = 2
 DEFAULT_RETRY_DELAY = 1
@@ -24,11 +25,12 @@ def is_youtube_url(url):
     return youtube_pattern.match(url)
 
 
-def get_transcript_from_id(
+def get_transcript_by_time(
     video_id: str, chunk_size: float
 ) -> Optional[List[Dict[str, Any]]]:
     """
-    Gets the transcript from a YouTube video ID. It also returns video information
+    Gets the transcript from a YouTube video ID. It also returns video information.
+    It chunks the transcript by the time in each chunk.
 
     Args:
         video_id: The YouTube video ID.
@@ -68,6 +70,71 @@ def get_transcript_from_id(
             start = end
             end += int(entry["start"])
             text = entry["text"]
+    # If there is any text left over, add it to the transcript
+    if text:
+        end_time = response[-1]["start"] + response[-1]["duration"]
+        duration = int(end_time - start)
+        transcript.append({"text": text, "start": int(start), "duration": duration})
+
+    return transcript
+
+
+def get_transcript_by_tokens(
+    video_id: str, chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Gets the transcript from a YouTube video ID. It also returns video information.
+    It chunks the transcript by the number of tokens in each chunk.
+
+    Args:
+        video_id: The YouTube video ID.
+        chunk_size: The chunk size in tokens for each text snippet
+        chunk_overlap: The number of tokens to overlap between chunks
+
+    Returns:
+        The transcript as a list of dicts where each dict is a chunk of text
+            defined as: {"text": [TEXT], "start": [START_TIME], "duration": [DURATION]}
+    """
+    try:
+        response = retry_call(
+            YouTubeTranscriptApi.get_transcript,
+            fargs=[video_id],
+            tries=DEFAULT_RETRY_TRIES,
+            delay=DEFAULT_RETRY_DELAY,
+            backoff=DEFAULT_RETRY_BACKOFF,
+        )
+    except Exception as e:
+        print(f"Error getting transcript for YouTube Video ID {video_id}: {e}")
+        return None
+
+    # Loop through until we have enough tokens, then add to output and repeat
+    start = 0.0
+    text = ""
+    transcript = list()
+    token_cnt = 0
+    for entry in response:
+        # Tokenize
+        records = split_by_tokenization(
+            entry["text"], chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
+
+        # Keep adding records based on n_tokens until we have enoug
+        for record in records:
+            if token_cnt < chunk_size:
+                # When less than chunk_size, add to text and increment token_cnt
+                text += " "
+                text += record["text"]
+                token_cnt += record["n_tokens"]
+            else:
+                # When we've reached chunk_size, add to output and reset
+                duration = int(entry["start"] - start)
+                transcript.append(
+                    {"text": text, "start": int(start), "duration": duration}
+                )
+                start = start + duration
+                token_cnt = 0
+                text = record["text"]
+
     # If there is any text left over, add it to the transcript
     if text:
         end_time = response[-1]["start"] + response[-1]["duration"]
@@ -122,7 +189,7 @@ def get_video_info_with_error_handling(video_link):
 
 
 def create_snippets(
-    videos: List[Dict[str, Any]], min_words: int = 0
+    videos: List[Dict[str, Any]], min_tokens: int = 0
 ) -> List[Dict[str, Any]]:
     """
     Create publishable snippets from a list of videos. Each video containts a list of
@@ -130,7 +197,7 @@ def create_snippets(
 
     Args:
         videos: A list of videos. Each video is a dict with at least `transcript` key.
-        min_words: The minimum number of words in a snippet to be included.
+        min_tokens: The minimum number of tokens in a snippet to be included.
 
     Returns:
         records: A list of generic records. Each record is a dict with `attributes`
@@ -142,9 +209,11 @@ def create_snippets(
             continue
         # create a record for each transcript line
         for snippet in video["transcript"]:
-            n_words = len(snippet["text"].split())
-            if n_words < min_words:
+            text = snippet["text"]
+            n_tokens = tiktoken_len(text)
+            if n_tokens < min_tokens:
                 continue
+            publish_date = video["publish_date"].strftime("%Y-%m-%d")
             attributes = {
                 "source": "youtube",
                 "video_id": video["id"],
@@ -154,9 +223,10 @@ def create_snippets(
                 "start": str(snippet["start"]),
                 "duration": str(snippet["duration"]),
                 "channel": video["channel"],
-                "publish_date": video["publish_date"].strftime("%Y-%m-%d"),
+                "publish_date": publish_date,
+                "date": publish_date,
+                "n_tokens": n_tokens,
             }
-            text = snippet["text"]
             record = {"attributes": attributes, "text": text}
             records.append(record)
 
@@ -164,7 +234,10 @@ def create_snippets(
 
 
 def extract_transcript_snippets_from_url(
-    url: str, min_words: int = 0, chunk_size: float = 300.0
+    url: str,
+    min_tokens: int = 0,
+    chunk_size: int = CHUNK_SIZE,
+    chunk_overlap: int = CHUNK_OVERLAP,
 ) -> List[Dict[str, Any]]:
     """
     Parse a YouTube video from a URL. By:
@@ -176,8 +249,9 @@ def extract_transcript_snippets_from_url(
 
     Args:
         url: The URL of the YouTube video.
-        min_words: The minimum number of words in a snippet to be included.
-        chunk_size: The chunk size in seconds for each text snippet
+        min_tokens: The minimum number of tokens in a snippet to be included.
+        chunk_size: The chunk size in number of tokens.
+        chunk_overlap: The chunk overlap in number of tokens.
 
     Returns:
         video_snippets: A list of dicts containing each transcript snippet
@@ -189,7 +263,9 @@ def extract_transcript_snippets_from_url(
 
     # Get the transcript
     try:
-        transcript = get_transcript_from_id(video_info["id"], chunk_size)
+        transcript = get_transcript_by_tokens(
+            video_info["id"], chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
     except Exception as e:
         logging.error(f"Error getting transcript for {url}: {e}")
         return None
@@ -202,15 +278,23 @@ def extract_transcript_snippets_from_url(
     video_info["transcript"] = transcript
 
     # Create a record for each transcript snippet
-    video_snippets = create_snippets([video_info], min_words=min_words)
+    video_snippets = create_snippets([video_info], min_tokens=min_tokens)
 
     return video_snippets
 
 
 if __name__ == "__main__":
-    url = "https://www.youtube.com/watch?v=-UrdExQW0cs"
-    video_snippets = extract_transcript_snippets_from_url(url, min_words=0)
+    url = "https://www.youtube.com/watch?v=eqOfr4AGLk8"
+    video_snippets = extract_transcript_snippets_from_url(url, min_tokens=0)
+
+    # Enrich with token counts using tiktoken_len
+    from tokenization import tiktoken_len
+    from pprint import pprint
+
+    for snippet in video_snippets:
+        snippet["n_tokens"] = tiktoken_len(snippet["text"])
+
     for i, v in enumerate(video_snippets, 1):
         print(f"Snippet {i}:\n----------------\n")
-        print(v)
+        pprint(v)
         print("\n\n")

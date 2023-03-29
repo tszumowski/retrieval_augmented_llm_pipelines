@@ -11,11 +11,12 @@ import os
 import requests
 import sys
 from google.cloud import pubsub_v1
+from tokenization import tiktoken_len
 from typing import Any, Dict, List
 from util_scrape import clean_text, get_main_text, parse_hyperlinks
 from youtube import extract_transcript_snippets_from_url, is_youtube_url
 
-MIN_BODY_CHARS = 1000
+MIN_TOKENS = 30
 
 
 def process_url(url: str, attributes: Dict[str, str]):
@@ -37,13 +38,18 @@ def process_url(url: str, attributes: Dict[str, str]):
 
     if is_youtube_url(url):
         # If the URL is a YouTube video, extract the transcript snippets
-        records = extract_transcript_snippets_from_url(url, min_words=MIN_BODY_CHARS)
+        records = extract_transcript_snippets_from_url(url, min_tokens=MIN_TOKENS)
     else:
         # Otherwise, just get the main text from the URL
         response = requests.get(url)
         html_body = get_main_text(response.text)
-        if html_body and len(html_body) >= MIN_BODY_CHARS:
+        n_tokens = 9
+        if html_body:
+            n_tokens = tiktoken_len(html_body)
+        if n_tokens >= MIN_TOKENS:
             # If the text is long enough, publish it
+            # add URL to attributes
+            attributes["url"] = url
             records = [{"text": html_body, "attributes": attributes}]
 
     # If there are records, clean the text field
@@ -77,6 +83,8 @@ def publish_records(
     for record in records:
         message = record["text"].encode("utf-8")
         attributes = record["attributes"]
+        # Cast all to strings
+        attributes = {k: str(v) for k, v in attributes.items()}
         publisher.publish(topic_path, data=message, **attributes)
 
 
