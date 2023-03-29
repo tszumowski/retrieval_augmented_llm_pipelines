@@ -80,7 +80,7 @@ def process_pubsub(cloud_event):
             print(f"Unable to embed text chunk #{i}: {error_str}. Skipping.")
             continue
 
-        embedding = res[0]["data"]["embedding"]
+        embedding = res["data"][0]["embedding"]
 
         # Append to list
         processed_chunks.append((chunk, embedding))
