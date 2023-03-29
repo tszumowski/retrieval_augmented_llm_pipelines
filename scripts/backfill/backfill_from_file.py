@@ -44,13 +44,15 @@ def publish_records(
     logging.info(f"Topic path: {topic_path}")
 
     # Publish messages to the topic, extracting the main body text from the
-    # HTML file.
+    # HTML file
     logging.info(f"Publishing {len(records)} records to Pub/Sub...")
     total_processed = 0
     publish_futures = list()
     for record in tqdm(records):
         text = record["text"]
         attributes = record["attributes"]
+        # Cast all to strings
+        attributes = {k: str(v) for k, v in attributes.items()}
         future = publisher.publish(topic_path, data=text.encode("utf-8"), **attributes)
         publish_futures.append(future)
         total_processed += 1

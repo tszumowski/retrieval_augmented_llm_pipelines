@@ -94,7 +94,7 @@ def process_pubsub(cloud_event):
         # Create vector objects
         # Hash the text to get a unique vector ID
         vector_id = hashlib.shake_256(text.encode()).hexdigest(5)
-        metadata = {"text": text, "n_tokens": n_tokens}
+        metadata = {"text": text, "n_tokens": str(n_tokens)}
         metadata.update(msg_attributes)  # add attributes that came from Pub/Sub
         vector = (vector_id, embedding, metadata)
 
