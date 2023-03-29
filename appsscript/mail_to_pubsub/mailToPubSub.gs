@@ -121,6 +121,7 @@ function sendToPubSub(
   var publishAttributes = {
     source: "gmail",
     sender: sender,
+    title: subject
   };
 
   // Build the body to publish, data is base64 encoded according to docs

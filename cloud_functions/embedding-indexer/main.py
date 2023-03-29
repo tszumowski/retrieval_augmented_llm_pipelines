@@ -20,9 +20,12 @@ import base64
 import functions_framework
 import config  # Update user config in this file
 import hashlib
+import json
 import openai
 import os
 import pinecone
+from smart_open import open
+import time
 from tokenization import tiktoken_len, split_by_tokenization
 
 """
@@ -127,3 +130,14 @@ def process_pubsub(cloud_event):
         f"Inserted {processed_vector_cnt} of {len(processed_chunks)} candidate vectors "
         f"into Pinecone index: {config.PINECONE_INDEX_NAME}."
     )
+
+    # Save vector to GCS as a single JSONL for backup purposes
+    if config.BUCKET_PATH:
+        vector_filename = f"vector_{vector_id}_{int(time.time())}.jsonl"
+        bucket_path = f"{config.BUCKET_PATH}/{vector_filename}"
+        # create a JSON line with the vector ID, embedding, and metadata
+        record = {"id": vector_id, "embedding": embedding, "metadata": metadata}
+        # Force to json as strings
+        record = json.dumps(record)
+        with open(bucket_path, "w") as f:
+            f.write(record)

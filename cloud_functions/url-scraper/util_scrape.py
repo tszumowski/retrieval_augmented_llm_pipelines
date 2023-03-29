@@ -105,5 +105,7 @@ def parse_hyperlinks(text: str) -> List[str]:
         link = link.replace("\r", "").replace("\n", "")
         link = link.replace("\\r", "").replace("\\n", "")
         link = link.replace("\\", "")
+        link = link.replace("'", "")
+        link = link.strip()
 
     return links

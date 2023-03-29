@@ -1,4 +1,5 @@
 langchain
 openai
 pinecone-client
+smart_open[gcs]
 tiktoken
