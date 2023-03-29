@@ -122,6 +122,7 @@ def process_pubsub(cloud_event):
         except Exception as e:
             print(f"Unable to upsert vector {vector_id}: {e}. Skipping")
             continue
+        processed_vector_cnt += 1
     print(
         f"Inserted {processed_vector_cnt} of {len(processed_chunks)} candidate vectors "
         f"into Pinecone index: {config.PINECONE_INDEX_NAME}."
