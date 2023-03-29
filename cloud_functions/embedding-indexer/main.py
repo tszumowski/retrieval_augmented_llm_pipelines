@@ -46,30 +46,41 @@ def process_pubsub(cloud_event):
     # Extract text and metadata from the Pub/Sub message
     msg_text = str(base64.b64decode(cloud_event.data["message"]["data"]))
     msg_attributes = cloud_event.data["message"]["attributes"]
+    # Add attribute "title" if doesn't exist
+    if "title" not in msg_attributes:
+        msg_attributes["title"] = "None"
+
     print(f"Received message with attributes: {msg_attributes}")
     msg_token_len = tiktoken_len(msg_text)
-    print(f"Found {len(msg_token_len)} characters in input text.")
+    print(f"Found {msg_token_len} tokens in input text.")
     print(f"Text chunk: {msg_text[:300]}")
-    max_tokens = config.MAX_TOKENS_PER_EMBEDDING_REQUEST
 
-    # Split into chunks based on tokenization
-    chunks = split_by_tokenization(msg_text, max_tokens)
-    print(
-        f"Split into {len(chunks)} chunks of text. Chunk sizes: "
-        f"[{[s['n_tokens'] for s in chunks]}]"
-    )
+    chunks = [{"text": msg_text, "n_tokens": msg_token_len}]
+    if msg_token_len > config.MAX_TOKENS_INPUT:
+        # Split into chunks based on tokenization
+        chunks = split_by_tokenization(msg_text, config.TOKEN_CHUNK_SIZE)
+        print(
+            f"Split into {len(chunks)} chunks of text. Chunk sizes: "
+            f"[{[s['n_tokens'] for s in chunks]}]"
+        )
 
     # Run embedding one by one just in case there is an error we can catch
     processed_chunks = list()
     for i, chunk in enumerate(chunks, 1):
         text = chunk["text"]
+        error_str = None
+        res = list()
+
         try:
             res = openai.Embedding.create(input=text, engine=config.EMBEDDING_MODEL)
         except Exception as e:
-            print(f"Unable to embed text chunk #{i}: {e}. Skipping")
+            error_str = str(e)
+
+        if len(res) == 0:
+            print(f"Unable to embed text chunk #{i}: {error_str}. Skipping.")
             continue
 
-        embedding = res["data"]["embedding"]
+        embedding = res[0]["data"]["embedding"]
 
         # Append to list
         processed_chunks.append((chunk, embedding))
@@ -85,7 +96,7 @@ def process_pubsub(cloud_event):
 
     # Add to index in batches
     processed_vector_cnt = 0
-    for cur_record in processed_chunks:
+    for i, cur_record in enumerate(processed_chunks, 1):
         # Select batch
         data, embedding = cur_record
         text = data["text"]
@@ -94,8 +105,15 @@ def process_pubsub(cloud_event):
         # Create vector objects
         # Hash the text to get a unique vector ID
         vector_id = hashlib.shake_256(text.encode()).hexdigest(5)
+
+        # add attributes that came from Pub/Sub
         metadata = {"text": text, "n_tokens": str(n_tokens)}
-        metadata.update(msg_attributes)  # add attributes that came from Pub/Sub
+        metadata.update(msg_attributes)
+
+        # Add incrementor to title
+        metadata["title"] = f"{metadata['title']} - {i:03d}"
+
+        # Create final vector object
         vector = (vector_id, embedding, metadata)
 
         # Upsert this vector
