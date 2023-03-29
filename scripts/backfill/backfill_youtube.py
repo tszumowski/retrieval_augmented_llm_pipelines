@@ -11,11 +11,9 @@ Usage:
 5. Run the script. Example Usage:
         python3 scripts/backfill/backfill_youtube.py \
             --input_file=youtube_video_likes.mht \
-            --output_file=youtube_video_likes-parsed.json \
+            --output_file=youtube_video_likes-parsed.jsonl \
             --skip_file=skip.csv \
-            --project_id=liquid-champion-195421 \
-            --topic_name=embedding-indexer \
-            --min_words=100
+            --min_tokens=100
 
     Note: The min_date and max_date are optional. If not provided, the script will
     scrape all videos in the playlist. See the --help flag for more details.
@@ -42,7 +40,7 @@ sys.path.append(
 # import get_transcript_from_url from youtube utils
 from youtube import (
     create_snippets,
-    get_transcript_from_id,
+    get_transcript_by_tokens,
     get_video_info_with_error_handling,
 )
 
@@ -173,12 +171,10 @@ def filter_videos_by_skip_file(
 
 def main(
     input_file: str,
-    project_id: str,
-    topic_name: str,
-    output_file: Optional[str] = None,
+    output_file: str,
     min_date: Optional[datetime.datetime] = None,
     max_date: Optional[datetime.datetime] = None,
-    min_words: int = 0,
+    min_tokens: int = 0,
     n_threads: int = DEFAULT_N_THREADS,
     chunk_size: int = 300,
     skip_file: Optional[str] = None,
@@ -188,14 +184,12 @@ def main(
 
     Args:
         input_file: The path to the mht file.
-        project_id: The GCP project ID.
-        topic_name: The name of the Pub/Sub topic.
         output_file: The path to the output file.
         min_date: The minimum date to scrape.
         max_date: The maximum date to scrape.
-        min_words: The minimum number of words in the transcript snippet needed to publish
+        min_tokens: The minimum number of tokens in the transcript snippet needed to publish
         n_threads: The number of threads to use.
-        chunk_size: The number of seconds per chunk in transcript.
+        chunk_size: The number of tokens per chunk in transcript.
         skip_file: The path to CSV file, single column, listing keywords from channel
             or titles to skip (case insensitive).
     """
@@ -233,11 +227,11 @@ def main(
     if min_date and max_date:
         logging.info(f"Found {len(videos)} videos between {min_date} and {max_date}.")
 
-    # Transcribe, in parallel, using get_transcript_from_id, passing in chunk_size argument
+    # Transcribe, in parallel, using get_transcript_by_tokens, passing in chunk_size argument
     logging.info(f"Transcribing {len(videos)} videos...")
     with futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
         transcripts = executor.map(
-            get_transcript_from_id,
+            get_transcript_by_tokens,
             [v["id"] for v in videos],
             [chunk_size] * len(videos),
         )
@@ -258,22 +252,17 @@ def main(
     # remove videos without transcripts
     videos = [v for v in videos if v["transcript"] is not None]
 
-    # optionally write to output file, casting all datetime objects to strings
-    if output_file:
-        logging.info(f"Writing to {output_file}...")
-        with open(output_file, "w") as file:
-            json.dump(videos, file, default=str)
-        logging.info("Done.")
-
     # Need to take each transcript record and create a unique publish record
-    records = create_snippets(videos, min_words)
+    records = create_snippets(videos, min_tokens)
 
-    # Publish to Pub/Sub
-    if project_id and topic_name:
-        logging.info(f"Publishing {len(records)} records to Pub/Sub...")
-        publish_video_snippets(project_id, topic_name, records)
-    else:
-        logging.info("No project_id or topic_name provided. Not publishing.")
+    # write to JSONlines output file, casting all datetime objects to strings
+    logging.info(f"Writing to {output_file}...")
+    with open(output_file, "w") as file:
+        # write each record as a JSON line
+        for record in records:
+            file.write(json.dumps(record, default=str))
+            file.write("\n")
+    logging.info("Done.")
 
 
 # Main script part
@@ -286,16 +275,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_file", help="File to parse", required=True)
     parser.add_argument(
-        "--project_id",
-        type=str,
-        required=False,
-        help="Google Cloud Project ID",
-    )
-    parser.add_argument(
-        "--topic_name",
-        type=str,
-        required=False,
-        help="Google Pub/Sub topic name",
+        "--output_file", help="File to write to", type=str, required=True
     )
     parser.add_argument(
         "--min_date", help="Minimum date to scrape (YYYY-MM-DD)", type=str, default=None
@@ -303,26 +283,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_date", help="Maximum date to scrape (YYYY-MM-DD)", type=str, default=None
     )
-    # add optional output file argument
     parser.add_argument(
-        "--output_file", help="File to write to", type=str, default=None
-    )
-    # Add an argument for minimum number of words in a file required
-    # to be indexed.
-    parser.add_argument(
-        "--min_words",
+        "--min_tokens",
         type=int,
         default=30,
-        help="Minimum number of words in a file required to be indexed",
+        help="Minimum number of tokens in a file required to be indexed",
     )
-    # add chunk_size
+    # add chunk_size argument
     parser.add_argument(
-        "--transcript_chunk_size",
+        "--chunk_size",
         type=int,
-        default=300,
-        help="Number of seconds for each chunk out of transcript",
+        default=375,
+        help="Number of tokens per chunk in transcript",
     )
-    # add a csv file that contains a list of channels and title keywords to skip
     parser.add_argument(
         "--skip_file",
         type=str,
@@ -341,12 +314,10 @@ if __name__ == "__main__":
     # call main function
     main(
         args.input_file,
-        args.project_id,
-        args.topic_name,
-        output_file=args.output_file,
+        args.output_file,
         min_date=min_date,
         max_date=max_date,
-        min_words=args.min_words,
-        chunk_size=args.transcript_chunk_size,
+        min_tokens=args.min_tokens,
+        chunk_size=args.chunk_size,
         skip_file=args.skip_file,
     )

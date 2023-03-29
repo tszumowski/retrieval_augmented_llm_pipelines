@@ -23,7 +23,12 @@ def get_main_text(html: str) -> str:
     # Note: en-note is the evernote html export tag that sometimes has the text
     for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "en-note"]):
         main_text += tag.get_text() + " "
-    return main_text.strip()
+
+    # Clean it
+    main_text = main_text.strip()
+    main_text = clean_text(main_text)
+
+    return main_text
 
 
 def clean_text(input_text: str) -> str:

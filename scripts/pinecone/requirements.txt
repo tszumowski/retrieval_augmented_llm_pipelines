@@ -1,8 +1,8 @@
-beautifulsoup4
 google-cloud-pubsub
+jsonlines
 langchain
-pytube
+pinecone-client
 requests
 retry
 tiktoken
-youtube_transcript_api
+tqdm

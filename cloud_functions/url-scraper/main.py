@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 from util_scrape import clean_text, get_main_text, parse_hyperlinks
 from youtube import extract_transcript_snippets_from_url, is_youtube_url
 
-MIN_BODY_CHARS = 1000
+MIN_TOKENS = 30
 
 
 def process_url(url: str, attributes: Dict[str, str]):
@@ -37,12 +37,12 @@ def process_url(url: str, attributes: Dict[str, str]):
 
     if is_youtube_url(url):
         # If the URL is a YouTube video, extract the transcript snippets
-        records = extract_transcript_snippets_from_url(url, min_words=MIN_BODY_CHARS)
+        records = extract_transcript_snippets_from_url(url, min_tokens=MIN_TOKENS)
     else:
         # Otherwise, just get the main text from the URL
         response = requests.get(url)
         html_body = get_main_text(response.text)
-        if html_body and len(html_body) >= MIN_BODY_CHARS:
+        if html_body and len(html_body) >= MIN_TOKENS:
             # If the text is long enough, publish it
             records = [{"text": html_body, "attributes": attributes}]
 

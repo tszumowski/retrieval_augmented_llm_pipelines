@@ -23,7 +23,7 @@ import hashlib
 import openai
 import os
 import pinecone
-import sys
+from tokenization import tiktoken_len, split_by_tokenization
 
 """
 Initialization
@@ -47,75 +47,34 @@ def process_pubsub(cloud_event):
     msg_text = str(base64.b64decode(cloud_event.data["message"]["data"]))
     msg_attributes = cloud_event.data["message"]["attributes"]
     print(f"Received message with attributes: {msg_attributes}")
-    print(f"Found {len(msg_text)} characters in input text.")
-    print(f"Text Snippet: {msg_text[:300]}")
-    default_max_chars = (
-        config.N_CHARS_PER_TOKEN * config.MAX_TOKENS_PER_EMBEDDING_REQUEST
+    msg_token_len = tiktoken_len(msg_text)
+    print(f"Found {len(msg_token_len)} characters in input text.")
+    print(f"Text chunk: {msg_text[:300]}")
+    max_tokens = config.MAX_TOKENS_PER_EMBEDDING_REQUEST
+
+    # Split into chunks based on tokenization
+    chunks = split_by_tokenization(msg_text, max_tokens)
+    print(
+        f"Split into {len(chunks)} chunks of text. Chunk sizes: "
+        f"[{[s['n_tokens'] for s in chunks]}]"
     )
-    texts = [
-        msg_text[i : i + default_max_chars]
-        for i in range(0, len(msg_text), default_max_chars)
-    ]
-    print(f"Split into {len(texts)} chunks of text to batch.")
 
-    # Create an embedding from input in batches of BATCH_SIZE
-    embedding_batches = []
-    text_batches = []
-    for i in range(0, len(texts), config.BATCH_SIZE):
-        max_chars = default_max_chars  # Reset max_chars
-        text_batch = texts[i : i + config.BATCH_SIZE]
-        # Try to embed text. If we get an error, try to split the text into
-        # smaller chunks.
-        try_cnt = 0
-        while try_cnt < config.MAX_SPLIT_TRIES:
-            try:
-                res = openai.Embedding.create(
-                    input=text_batch, engine=config.EMBEDDING_MODEL
-                )
-                break  # Break out of while loop if successful
-            except openai.error.InvalidRequestError as e:
-                if "reduce your prompt" in str(e):
-                    print(
-                        f"One of texts in batch were too long, splitting into "
-                        f"smaller chunks. max_chars was {max_chars}",
-                        file=sys.stderr,
-                    )
+    # Run embedding one by one just in case there is an error we can catch
+    processed_chunks = list()
+    for i, chunk in enumerate(chunks, 1):
+        text = chunk["text"]
+        try:
+            res = openai.Embedding.create(input=text, engine=config.EMBEDDING_MODEL)
+        except Exception as e:
+            print(f"Unable to embed text chunk #{i}: {e}. Skipping")
+            continue
 
-                    # Reduce max_chars by half
-                    max_chars = max_chars // 2
-                    print(f"New max_chars is {max_chars}.")
-
-                    # Break up text into smaller chunks
-                    print(f"text_batch length was: {len(text_batch)}")
-                    text_batch = [
-                        text_batch[i][j : j + max_chars]
-                        for i in range(len(text_batch))
-                        for j in range(0, len(text_batch[i]), max_chars)
-                    ]
-                    print(f"text_batch length now: {len(text_batch)}")
-
-                    try_cnt += 1
-                else:
-                    print(
-                        f"Unable to embed even after {config.MAX_SPLIT_TRIES} "
-                        f"reductions. Failing with error: {e}.",
-                        file=sys.stderr,
-                    )
-                    raise e
-        embeddings = [x["embedding"] for x in res["data"]]
-
-        # Check that we got the right number of embeddings
-        if len(embeddings) != len(text_batch):
-            raise ValueError(
-                f"Number of embeddings ({len(embeddings)}) does not match number of "
-                f"text chunks ({len(text_batch)})."
-            )
+        embedding = res["data"]["embedding"]
 
         # Append to list
-        embedding_batches.append(embeddings)
-        text_batches.append(text_batch)
+        processed_chunks.append((chunk, embedding))
 
-    print(f"Created {len(embedding_batches)} batches of embeddings.")
+    print(f"Processed {len(processed_chunks)} of {len(chunks)} possible embeddings.")
 
     """
     Batch Insert into Pinecone Index
@@ -125,25 +84,27 @@ def process_pubsub(cloud_event):
     index = pinecone.Index(config.PINECONE_INDEX_NAME)
 
     # Add to index in batches
-    vector_cnt = 0
-    for i in range(len(embedding_batches)):
+    processed_vector_cnt = 0
+    for cur_record in processed_chunks:
         # Select batch
-        embeddings = embedding_batches[i]
-        texts = text_batches[i]
+        data, embedding = cur_record
+        text = data["text"]
+        n_tokens = data["n_tokens"]
 
         # Create vector objects
-        vectors = list()
-        for embedding, text in zip(embeddings, texts):
-            # Hash the text to get a unique vector ID
-            vector_id = hashlib.shake_256(text.encode()).hexdigest(5)
-            metadata = {"text": text}
-            metadata.update(msg_attributes)  # add pubsub attributes too (e.g. source)
-            vectors.append((vector_id, embedding, metadata))
-            vector_cnt += 1
+        # Hash the text to get a unique vector ID
+        vector_id = hashlib.shake_256(text.encode()).hexdigest(5)
+        metadata = {"text": text, "n_tokens": n_tokens}
+        metadata.update(msg_attributes)  # add attributes that came from Pub/Sub
+        vector = (vector_id, embedding, metadata)
 
-        # Upsert this batch
-        index.upsert(vectors=vectors)
+        # Upsert this vector
+        try:
+            index.upsert(vectors=[vector])
+        except Exception as e:
+            print(f"Unable to upsert vector {vector_id}: {e}. Skipping")
+            continue
     print(
-        f"Inserted {vector_cnt} vectors into Pinecone index: "
-        f"{config.PINECONE_INDEX_NAME}."
+        f"Inserted {processed_vector_cnt} of {len(processed_chunks)} candidate vectors "
+        f"into Pinecone index: {config.PINECONE_INDEX_NAME}."
     )
