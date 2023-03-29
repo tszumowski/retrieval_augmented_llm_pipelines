@@ -101,11 +101,12 @@ def parse_hyperlinks(text: str) -> List[str]:
             links.append(link)
 
     # strip all variants of \r and \n from each link
-    for link in links:
+    for i, link in enumerate(links):
         link = link.replace("\r", "").replace("\n", "")
         link = link.replace("\\r", "").replace("\\n", "")
         link = link.replace("\\", "")
         link = link.replace("'", "")
         link = link.strip()
+        links[i] = link
 
     return links
