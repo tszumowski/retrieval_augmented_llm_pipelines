@@ -1,9 +1,12 @@
 beautifulsoup4
 google-cloud-pubsub
 jsonlines
+langchain
 pandas
+pinecone-client
 requests
 retry
 pytube
+tiktoken
 tqdm
 youtube_transcript_api

@@ -1,8 +1,0 @@
-google-cloud-pubsub
-jsonlines
-langchain
-pinecone-client
-requests
-retry
-tiktoken
-tqdm

@@ -6,17 +6,12 @@ It assumes the JSON payload is already split properly to appropriate lengths.
 """
 
 import argparse
-from bs4 import BeautifulSoup
-import datetime
 import json
 import logging
-import os
-import quopri
-import sys
 from concurrent import futures
 from google.cloud import pubsub_v1
 from tqdm import tqdm
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def publish_records(
