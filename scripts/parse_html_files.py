@@ -4,20 +4,18 @@ Script to backfill HTML
 """
 
 import argparse
+import jsonlines
 import os
 import requests
 import sys
 
-from bs4 import BeautifulSoup
-from concurrent import futures
-from google.cloud import pubsub_v1
 from tqdm import tqdm
 from typing import Dict, List, Optional
 from uuid import uuid4
 
 # add ../cloud_functions to path to access youtube utils
 sys.path.append(
-    os.path.join(os.path.dirname(__file__), "../../cloud_functions/url-scraper")
+    os.path.join(os.path.dirname(__file__), "../cloud_functions/url-scraper")
 )
 
 from tokenization import tiktoken_len
@@ -84,43 +82,42 @@ def parse_attributes(attributes_str: str) -> Dict[str, str]:
 
 
 def main(
-    project_id: str,
-    topic_name: str,
     html_paths: List[str],
+    output_file: str,
     attributes: Optional[Dict[str, str]] = None,
     min_tokens: Optional[int] = None,
+    chunk_size: Optional[int] = None,
 ) -> None:
     """
-    Backfill HTML to Google Pub/Sub topic.
+    Parse a list of HTML files and write the extracted text to a JSONL file.
 
     Args:
-        project_id: Google Cloud Project ID
-        topic_name: Google Pub/Sub topic name
         html_paths: List of any of: HTML file path, URL.
+        output_file: File to write to.
         attributes: Dictionary of attributes to add to the Pub/Sub message.
         min_tokens: Minimum number of tokens in a file required to be indexed.
+        chunk_size: Number of tokens per chunk
     """
     # Default to None if min_tokens is not a positive integer.
     if min_tokens is not None and min_tokens < 1:
         min_tokens = None
 
-    # Initialize a Publisher client.
-    publisher = pubsub_v1.PublisherClient()
-
-    # Define the topic path.
-    topic_path = publisher.topic_path(project_id, topic_name)
-    print(f"Topic path: {topic_path}")
-
     # Publish messages to the topic, extracting the main body text from the
     # HTML file.
-    total_processed = 0
-    publish_futures = list()
+    records = list()
     for tfile in tqdm(html_paths):
         with open(tfile, "r") as f:
             html = f.read()
+
+        # Extract the test
         extracted_text = get_main_text(html)
+
+        # Clean the text
+        extracted_text = clean_text(extracted_text)
+
+        # If chunk_size is specified, split the text into chunks.
+        n_tokens = tiktoken_len(extracted_text)
         if min_tokens is not None:
-            n_tokens = tiktoken_len(extracted_text)
             if n_tokens < min_tokens:
                 print(
                     f"Skipping {tfile} because it has {n_tokens} tokens, which is less "
@@ -131,34 +128,26 @@ def main(
             f"Extracted {len(extracted_text)} characters, or {n_tokens} "
             f"tokens, from {tfile}."
         )
-        print(f"Snippet:\n\t{extracted_text[0:500]}\n\n")  # Prints a sample
-        future = publisher.publish(
-            topic_path, data=extracted_text.encode("utf-8"), **attributes
-        )
-        publish_futures.append(future)
-        total_processed += 1
+        print(f"Snippet:\n\t{extracted_text[0:300]}\n\n")  # Prints a sample
 
-    # Wait for all the publish futures to resolve before reporting complete.
-    print(f"Waiting for {len(publish_futures)} publish events to complete ...")
-    futures.wait(publish_futures, return_when=futures.ALL_COMPLETED)
+        cur_attributes = attributes.copy()
+        cur_attributes["title"] = tfile
 
-    print(f"Done! Processed {total_processed} / {len(html_paths)} files.")
+        record = {
+            "text": extracted_text,
+            "attributes": cur_attributes,
+        }
+        records.append(record)
+
+    print(f"Writing {len(records)} / {len(html_paths)} files to {output_file}")
+    with jsonlines.open(output_file, "w") as writer:
+        writer.write_all(records)
+
+    # TODO: save off the above in loop with some source info, and write to jsonl file output_file
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--project_id",
-        type=str,
-        required=True,
-        help="Google Cloud Project ID",
-    )
-    parser.add_argument(
-        "--topic_name",
-        type=str,
-        required=True,
-        help="Google Pub/Sub topic name",
-    )
     parser.add_argument(
         "--html_path",
         type=str,
@@ -168,13 +157,23 @@ if __name__ == "__main__":
         "file path, directory of HTML files, or URL
         """,
     )
+    parser.add_argument(
+        "--output_file", help="File to write to", type=str, required=True
+    )
     # Add an argument for Minimum number of tokens in a file required
     # to be indexed.
     parser.add_argument(
         "--min_tokens",
         type=int,
-        default=0,
+        default=30,
         help="Minimum number of tokens in a file required to be indexed",
+    )
+    # add chunk_size argument
+    parser.add_argument(
+        "--chunk_size",
+        type=int,
+        default=375,
+        help="Number of tokens per chunk",
     )
     # Add attrs to parser which is a string of comma-separated key-value pairs
     # using colons to separate the key and value. For example, "key1:value1,key2:value2"
@@ -200,9 +199,9 @@ if __name__ == "__main__":
 
     # Run main
     main(
-        project_id=args.project_id,
-        topic_name=args.topic_name,
         html_paths=html_paths,
+        output_file=args.output_file,
         min_tokens=args.min_tokens,
         attributes=attributes,
+        chunk_size=args.chunk_size,
     )

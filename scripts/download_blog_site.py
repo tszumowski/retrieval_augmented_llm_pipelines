@@ -100,7 +100,7 @@ if __name__ == "__main__":
     # custom variables
     base_url = "https://ofdollarsanddata.com/page/"
     start_page = 1
-    end_page = 34
+    end_page = 35
     link_match_text = "Read More"
     output_dir = "ofdollarsanddata"
 
