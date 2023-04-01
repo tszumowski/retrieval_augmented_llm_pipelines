@@ -1,4 +1,5 @@
 beautifulsoup4
+google-cloud-firestore
 google-cloud-pubsub
 jsonlines
 langchain

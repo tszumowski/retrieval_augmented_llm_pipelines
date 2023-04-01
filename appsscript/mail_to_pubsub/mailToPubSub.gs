@@ -1,6 +1,6 @@
 function forwardGmailToPubSub() {
   // User config
-  const projectId = "liquid-champion-195421";
+  const projectId = "[PROJECT_NAME]";
   const embeddingTopicName = "embedding-indexer";
   const scrapeTopicName = "url-scraper";
   const processLabel = "#indexme";
