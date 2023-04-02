@@ -13,7 +13,7 @@ from tqdm import tqdm
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-# add ../cloud_functions to path to access youtube utils
+# add ../cloud_functions to path to access utils
 sys.path.append(
     os.path.join(os.path.dirname(__file__), "../cloud_functions/url-scraper")
 )
