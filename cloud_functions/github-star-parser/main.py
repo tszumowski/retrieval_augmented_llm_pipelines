@@ -5,6 +5,7 @@ For any new ones found, it saves as a {"text": <readme_content>, "attributes": .
 record in a JSONlines file.
 """
 import config
+import functions_framework
 import json
 import os
 import requests
@@ -125,10 +126,13 @@ def scrape_and_save_readme(
 
 
 
-def main():
+@functions_framework.cloud_event
+def process_pubsub(cloud_event):
     """
     Entry point for the Cloud Function.
     """
+    print(f"Received event: {cloud_event}.")
+
     # Call the function
     records = scrape_and_save_readme(GITHUB_USERNAME, GITHUB_TOKEN)
 

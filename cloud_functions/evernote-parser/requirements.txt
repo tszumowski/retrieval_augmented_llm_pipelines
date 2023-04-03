@@ -1,0 +1,6 @@
+evernote3
+oauth2
+oauthlib
+requests
+requests_oauthlib
+google-cloud-pubsub
