@@ -1,26 +1,20 @@
 """
 This generates a token for the Evernote API so that it can be used in a script in the future
 without requiring user authorization every time.
+
+Ref: https://dev.evernote.com/doc/articles/authentication.php/
+Ref: https://github.com/Evernote/evernote-sdk-python3/blob/master/sample/client/EDAMTest.py
 """
 
-# https://github.com/Evernote/evernote-sdk-python3/blob/master/sample/client/EDAMTest.py
-
 import argparse
-from datetime import datetime
-import evernote.edam.userstore.constants as UserStoreConstants
-import evernote.edam.notestore.ttypes as NoteStoreTypes
-
 import os
 
 from evernote.api.client import EvernoteClient
-from typing import Optional
+
 
 def get_evernote_access_token(
-    consumer_key: str, 
-    consumer_secret: str, 
-    sandbox: bool = False, 
-    china: bool = False
-    ) -> str:
+    consumer_key: str, consumer_secret: str, sandbox: bool = False, china: bool = False
+) -> str:
     """
     Get an Evernote token for use in a script.
     This access token can be used to access the Evernote API without requiring user authorization.
@@ -46,14 +40,19 @@ def get_evernote_access_token(
     access_token = ""
 
     # Create Client
-    client = EvernoteClient(consumer_key=consumer_key, consumer_secret=consumer_secret, sandbox=sandbox, china=china)    
+    client = EvernoteClient(
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        sandbox=sandbox,
+        china=china,
+    )
 
     # Get Request Token. Redirect to Localhost because we don't have a webserver
     request_token = client.get_request_token("http://localhost:8888")
 
     # Request token is a dict with keys oauth_token and oauth_token_secret
-    oauth_token = request_token['oauth_token']
-    oauth_token_secret = request_token['oauth_token_secret']    
+    oauth_token = request_token["oauth_token"]
+    oauth_token_secret = request_token["oauth_token_secret"]
 
     # Get the authorization URL
     auth_url = client.get_authorize_url(request_token)
@@ -63,14 +62,18 @@ def get_evernote_access_token(
     os.system("open " + auth_url)
 
     # Get the verifier code from the user
-    print("Please visit this website to retrieve the oauth verification code after you have authorized:")
+    print(
+        "Please visit this website to retrieve the oauth verification code after you have authorized:"
+    )
     print(auth_url)
     print()
     validated_url = input("Please enter the full URL of the verification page: ")
     oauth_verifier = validated_url.split("oauth_verifier=")[1].split("&")[0]
 
     # Get the access token
-    access_token = client.get_access_token(oauth_token, oauth_token_secret, oauth_verifier)
+    access_token = client.get_access_token(
+        oauth_token, oauth_token_secret, oauth_verifier
+    )
 
     return access_token
 
@@ -81,10 +84,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # consuumer key and secret
     parser.add_argument("--consumer-key", help="Evernote consumer key", required=True)
-    parser.add_argument("--consumer-secret", help="Evernote consumer secret", required=True)
+    parser.add_argument(
+        "--consumer-secret", help="Evernote consumer secret", required=True
+    )
 
     # sandbox or production
-    parser.add_argument("--sandbox", help="Use sandbox.evernote.com", action="store_true")
+    parser.add_argument(
+        "--sandbox", help="Use sandbox.evernote.com", action="store_true"
+    )
 
     # output file
     parser.add_argument("--output", help="Output file", required=False)
