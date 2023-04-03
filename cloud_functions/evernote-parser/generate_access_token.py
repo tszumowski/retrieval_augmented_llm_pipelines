@@ -47,12 +47,26 @@ def get_evernote_access_token(
         china=china,
     )
 
+    """
+    Generate Temporary Token
+
+    First you’re application must request Evernote generate a temporary token. 
+    """
     # Get Request Token. Redirect to Localhost because we don't have a webserver
     request_token = client.get_request_token("http://localhost:8888")
 
     # Request token is a dict with keys oauth_token and oauth_token_secret
-    oauth_token = request_token["oauth_token"]
-    oauth_token_secret = request_token["oauth_token_secret"]
+    oauth_request_token = request_token["oauth_token"]
+    oauth_request_token_secret = request_token["oauth_token_secret"]
+
+    """
+    Request User Authorization
+    
+    
+    After you have retrieved the temporary token from Evernote you must redirect the user 
+    to Evernote for the user to approve access of their Evernote account to your 
+    application.    
+    """
 
     # Get the authorization URL
     auth_url = client.get_authorize_url(request_token)
@@ -66,13 +80,20 @@ def get_evernote_access_token(
         "Please visit this website to retrieve the oauth verification code after you have authorized:"
     )
     print(auth_url)
-    print()
+    print("\n")
     validated_url = input("Please enter the full URL of the verification page: ")
     oauth_verifier = validated_url.split("oauth_verifier=")[1].split("&")[0]
 
+    """
+    Retrieve Access Token
+
+    Request the access token from Evernote using the temporary token and the verifier code.
+    The OAuth verifier code is provided at callback if the user grants access
+    """
+
     # Get the access token
     access_token = client.get_access_token(
-        oauth_token, oauth_token_secret, oauth_verifier
+        oauth_request_token, oauth_request_token_secret, oauth_verifier
     )
 
     return access_token
