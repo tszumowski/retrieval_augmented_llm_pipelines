@@ -39,6 +39,14 @@ def scrape_and_save_readme(
     For any new ones found, save as a {"text": <readme_content>, "attributes": ...}
     record in a JSONlines file.
 
+    Args:
+        github_username: The GitHub username.
+        github_token: The GitHub API token.
+
+    Returns:
+        records: A list of records in the form of
+            {"text": <readme_content>, "attributes": ...}
+
     """
     # Init
     total_repos = 0
@@ -125,11 +133,16 @@ def scrape_and_save_readme(
     return records
 
 
-
 @functions_framework.cloud_event
 def process_pubsub(cloud_event):
     """
     Entry point for the Cloud Function.
+
+    Args:
+        cloud_event: The Cloud Event.
+
+    Returns:
+        None
     """
     print(f"Received event: {cloud_event}.")
 

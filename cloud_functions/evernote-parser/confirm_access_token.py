@@ -3,6 +3,7 @@ Script to confirm the Evernote access token is valid.
 Type `python confirm_access_token.py --help` for more information.
 """
 import argparse
+import os
 import evernote.edam.userstore.constants as UserStoreConstants
 
 from evernote.api.client import EvernoteClient
@@ -51,30 +52,26 @@ def confirm_evernote_access_token(
 
 if __name__ == "__main__":
     # Parse args
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--access_token",
-        type=str,
-        required=True,
-        help="Evernote access token",
+    parser = argparse.ArgumentParser(
+        description="Confirm Evernote access token. Set environment variable ACCESS_TOKEN_EVERNOTE to your access token and run."
     )
+    # sandbox or production
     parser.add_argument(
-        "--sandbox",
-        type=bool,
-        required=True,
-        help="Use sandbox.evernote.com",
+        "--sandbox", help="Use sandbox.evernote.com", action="store_true"
     )
     parser.add_argument(
         "--china",
-        type=bool,
-        required=False,
+        action="store_true",
         help="Use app.yinxiang.com",
     )
     args = parser.parse_args()
 
+    # Get access token
+    access_token = os.environ["ACCESS_TOKEN_EVERNOTE"]
+
     # Confirm access token
     confirm_evernote_access_token(
-        access_token=args.access_token,
+        access_token=access_token,
         sandbox=args.sandbox,
         china=args.china,
     )
