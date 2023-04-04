@@ -1,0 +1,8 @@
+evernote3
+google-cloud-firestore
+google-cloud-pubsub
+oauth2
+oauthlib
+requests
+requests_oauthlib
+retry

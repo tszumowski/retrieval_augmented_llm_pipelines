@@ -5,6 +5,7 @@ For any new ones found, it saves as a {"text": <readme_content>, "attributes": .
 record in a JSONlines file.
 """
 import config
+import functions_framework
 import json
 import os
 import requests
@@ -37,6 +38,14 @@ def scrape_and_save_readme(
     Save the URLs of the README files in a Google Cloud Datastore.
     For any new ones found, save as a {"text": <readme_content>, "attributes": ...}
     record in a JSONlines file.
+
+    Args:
+        github_username: The GitHub username.
+        github_token: The GitHub API token.
+
+    Returns:
+        records: A list of records in the form of
+            {"text": <readme_content>, "attributes": ...}
 
     """
     # Init
@@ -124,11 +133,19 @@ def scrape_and_save_readme(
     return records
 
 
-
-def main():
+@functions_framework.cloud_event
+def process_pubsub(cloud_event):
     """
     Entry point for the Cloud Function.
+
+    Args:
+        cloud_event: The Cloud Event.
+
+    Returns:
+        None
     """
+    print(f"Received event: {cloud_event}.")
+
     # Call the function
     records = scrape_and_save_readme(GITHUB_USERNAME, GITHUB_TOKEN)
 
