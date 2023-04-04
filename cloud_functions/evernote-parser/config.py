@@ -19,6 +19,6 @@ NOTEBOOKS = [
     "Marketing",
     "Indexer",
 ]  # List of Evernote notebooks to scrape
-PUBSUB_TOPIC = "url-scraper"  # Pub/Sub topic to send records to
+PUBSUB_TOPIC = "embedding-indexer"  # Pub/Sub topic to send records to
 EVERNOTE_SANDBOX = True  # Set to False for production
 EVERNOTE_CHINA = False
