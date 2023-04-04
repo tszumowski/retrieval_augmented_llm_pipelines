@@ -9,6 +9,7 @@ import os
 import requests
 import sys
 
+from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, List, Optional
 from uuid import uuid4
@@ -130,8 +131,11 @@ def main(
         )
         print(f"Snippet:\n\t{extracted_text[0:300]}\n\n")  # Prints a sample
 
+        # Build attributes, adding the title
         cur_attributes = attributes.copy()
-        cur_attributes["title"] = tfile
+        title = Path(tfile)
+        title = title.stem
+        cur_attributes["title"] = title
 
         record = {
             "text": extracted_text,
