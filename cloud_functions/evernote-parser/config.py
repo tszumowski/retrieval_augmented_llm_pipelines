@@ -2,7 +2,7 @@
 User Configuration
 """
 
-COLLECTION_NAME = "EvernoteNotesProcessed"
+COLLECTION_NAME = "SandboxEvernoteNotesProcessed"  # Remove "Sandbox" for production
 NOTEBOOKS = [
     "Software",
     "Recommenders",
@@ -18,8 +18,8 @@ NOTEBOOKS = [
     "Forecasting",
     "Marketing",
     "Indexer",
-]
-PUBSUB_TOPIC = "url-scraper"
-EVERNOTE_SANDBOX = False
+]  # List of Evernote notebooks to scrape
+PUBSUB_TOPIC = "url-scraper"  # Pub/Sub topic to send records to
+EVERNOTE_SANDBOX = True  # Set to False for production
 EVERNOTE_CHINA = False
-WAIT_TIME = 0.5  # Time to wait between requests to Evernote
+

@@ -1,7 +1,7 @@
 # GitHub Stars Parser Cloud Function
 ---
 
-This directory contains a script to parse all of your GitHub Starred repository READMEs and push new notes to  Google Cloud Pub/Sub. It uses Google Cloud Firestore as a database to maintain which notes it already processed. 
+This directory contains a script to parse all of your GitHub Starred repository READMEs and push to Google Cloud Pub/Sub. It uses Google Cloud Firestore as a database to maintain which notes it already processed.
 
 ## Environment Setup
 - Enable Google Cloud Pub/Sub + API
@@ -17,7 +17,7 @@ This directory contains a script to parse all of your GitHub Starred repository 
 Go to [your GitHub tokens page](https://github.com/settings/tokens) and add a Personal access
 token. Provide it `public_repo` access.
 
-### Test Token 
+### Test Token
 
 Set the following environment variables:
 - `GITHUB_USERNAME`

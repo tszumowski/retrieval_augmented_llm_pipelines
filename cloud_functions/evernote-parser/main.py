@@ -1,9 +1,13 @@
 """
 Cloud Function to parse Evernote notes and any ones not already flagged as processed
 in Cloud Firestore over to Cloud Pub/Sub.
+
+**WARNING: See README.md for important information about this script.**
+
 """
 import config
 import evernote.edam.notestore.ttypes as NoteStoreTypes
+import evernote.edam.type.ttypes as EvernoteTypes
 import functions_framework
 import json
 import os
@@ -52,11 +56,12 @@ def check_doc_exists(
     tries=DEFAULT_RETRY_TRIES, delay=DEFAULT_RETRY_DELAY, backoff=DEFAULT_RETRY_BACKOFF
 )
 def process_note(
-    note: NoteStoreTypes.Note,
+    note: NoteStoreTypes.NoteMetadata,
     note_store: NoteStore,
     collection_name: str,
     client: firestore.Client,
-    notebook: NoteStoreTypes.Notebook,
+    notebook: EvernoteTypes.Notebook,
+    min_chars: int = 300,
 ) -> Optional[Dict[str, Any]]:
     """
     Process Evernote note object with retries and returns the note content.
@@ -67,15 +72,15 @@ def process_note(
         collection_name: The Firestore collection name.
         client: The Firestore client.
         notebook: The notebook name.
+        min_chars: Minimum number of characters in a note to be considered a record
 
     Returns:
         record: Record dict with the note content and attributes.
     """
     record = None
 
+    # Get creation time
     created_time = note.created
-
-    # convert epoch time to ISO-8601
     created_time = datetime.fromtimestamp(created_time / 1000).isoformat()
 
     # Define a clean document name
@@ -93,22 +98,26 @@ def process_note(
     note_content = clean_text(note_content)
 
     # Build the record
-    print(
-        f"Saving content of note {notebook.name} - {note.title} - ({created_time}).\n"
-        f"\tSnippet: {note_content[:100]}."
-    )
-    record = {
-        "text": note_content,
-        "attributes": {
-            "notebook": notebook.name,
-            "title": note.title,
-            "created_time": created_time,
-            "source": "evernote",
-            "doc_name": doc_name,
-        },
-    }
+    print_label = f"{notebook.name} - {note.title} - ({created_time}"
+    if len(note_content) >= min_chars:
+        print(
+            f"Saving content of note: {print_label}).\n"
+            f"\tSnippet: {note_content[:100]}."
+        )
+        record = {
+            "text": note_content,
+            "attributes": {
+                "notebook": notebook.name,
+                "title": note.title,
+                "created_time": created_time,
+                "source": "evernote",
+                "doc_name": doc_name,
+            },
+        }
+    else:
+        print(f"Skipping note {print_label} " f"because it is too short.")
 
-    # Save the record to Firestore
+    # Save the record to Firestore no matter what
     doc_ref.set({"title": doc_name})
 
     return record
@@ -118,11 +127,12 @@ def process_note(
     tries=DEFAULT_RETRY_TRIES, delay=DEFAULT_RETRY_DELAY, backoff=DEFAULT_RETRY_BACKOFF
 )
 def process_notebook(
-    notebook: NoteStoreTypes.Notebook,
+    notebook: EvernoteTypes.Notebook,
     note_store: NoteStore,
     collection_name: str,
     client: firestore.Client,
     limit: int = 200,
+    **kwargs,
 ) -> Optional[List[Dict[str, Any]]]:
     """
         Process Evernote note object with retries and returns the note content.
@@ -158,7 +168,7 @@ def process_notebook(
         print(f"Found {len(notes)} notes in {notebook.name} so far.")
         for note in notes:
             record = process_note(
-                note, note_store, config.COLLECTION_NAME, client, notebook
+                note, note_store, collection_name, client, notebook, **kwargs
             )
             if record:
                 records.append(record)
@@ -172,6 +182,7 @@ def scrape_evernote(
     notebooks: Sequence[str],
     sandbox: bool = False,
     china: bool = False,
+    min_chars: int = 300,
 ) -> List[Dict[str, Any]]:
     """
     Scrape the README files of all the repositories starred by a GitHub user.
@@ -184,6 +195,7 @@ def scrape_evernote(
         notebooks: The Evernote notebooks to scrape.
         sandbox: Whether to use the Evernote sandbox.
         china: Whether to use the Evernote China API.
+        min_chars: The minimum number of characters in a note to save.
 
     Returns:
         records: A list of records in the form of
@@ -212,15 +224,20 @@ def scrape_evernote(
         n_notebooks_found += 1
 
         notebook_records = process_notebook(
-            nb, note_store, config.COLLECTION_NAME, firestore_client
+            nb,
+            note_store,
+            config.COLLECTION_NAME,
+            firestore_client,
+            min_chars=min_chars,
         )
         if notebook_records:
             records.extend(notebook_records)
 
     print(
-        f"Found {n_notebooks_found} Evernote notebooks out of {len(notebooks_all)} total."
+        f"Processed {n_notebooks_found} matching Evernote notebooks out of "
+        f"{len(notebooks_all)} total."
     )
-    print(f"Processed {len(records)} records.")
+    print(f"Extracted {len(records)} records total.")
     return records
 
 
@@ -256,9 +273,10 @@ def process_pubsub(cloud_event):
 if __name__ == "__main__":
     # Main function saves them all to a file rather than pushing to Pub/Sub
     output_file = "evernote_notes.jsonl"
+    sandbox = config.EVERNOTE_SANDBOX
 
     # Scrape the README files of all the repositories starred by a GitHub user
-    records = scrape_evernote(ACCESS_TOKEN_EVERNOTE, config.NOTEBOOKS)
+    records = scrape_evernote(ACCESS_TOKEN_EVERNOTE, config.NOTEBOOKS, sandbox=sandbox)
 
     # Save the records to a JSONlines file
     print(f"Saving {len(records)} records to {output_file}.")
