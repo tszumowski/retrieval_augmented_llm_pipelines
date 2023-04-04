@@ -5,3 +5,4 @@ oauth2
 oauthlib
 requests
 requests_oauthlib
+retry

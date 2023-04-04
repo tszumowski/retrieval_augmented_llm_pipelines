@@ -152,6 +152,7 @@ def process_notebook(
     # Paginate through the notes in the notebook, 100 at a time
     offset = 0
     n_notes = 0
+    records = list()
     while True:
         note_filter = NoteStoreTypes.NoteFilter(notebookGuid=notebook.guid)
         result_spec = NoteStoreTypes.NotesMetadataResultSpec(
@@ -177,6 +178,8 @@ def process_notebook(
 
         # Increment the offset
         offset += limit
+
+    return records
 
 
 def scrape_evernote(
@@ -258,11 +261,15 @@ def process_pubsub(cloud_event):
 
     # Call the function
     records = scrape_evernote(ACCESS_TOKEN_EVERNOTE, config.NOTEBOOKS)
+    if not records:
+        print("No new records found. Exiting.")
+        return
 
     # Send the records to the Pub/Sub topic
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path(PROJECT_ID, config.PUBSUB_TOPIC)
 
+    print(f"Publishing {len(records)} records to Pub/Sub.")
     for record in records:
         message = record["text"].encode("utf-8")
         attributes = record["attributes"]
