@@ -90,7 +90,7 @@ def process_note(
     # Check if the document name already exists in Firestore
     doc_exists, doc_ref = check_doc_exists(doc_name, collection_name, client)
     if doc_exists:
-        # Skip if the URL already exists in Firestore
+        # Skip if already exists in Firestore
         return record
 
     # If not, get the note content
@@ -151,6 +151,7 @@ def process_notebook(
     """
     # Paginate through the notes in the notebook, 100 at a time
     offset = 0
+    n_notes = 0
     while True:
         note_filter = NoteStoreTypes.NoteFilter(notebookGuid=notebook.guid)
         result_spec = NoteStoreTypes.NotesMetadataResultSpec(
@@ -160,12 +161,13 @@ def process_notebook(
             note_filter, offset, limit, result_spec
         )
         notes = note_list.notes
+        n_notes += len(notes)
 
         # If there are no more notes, break
         if not notes:
             break
 
-        print(f"Found {len(notes)} notes in {notebook.name} so far.")
+        print(f"Found {n_notes} notes in {notebook.name} so far.")
         for note in notes:
             record = process_note(
                 note, note_store, collection_name, client, notebook, **kwargs
