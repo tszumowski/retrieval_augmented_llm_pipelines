@@ -2,12 +2,12 @@ beautifulsoup4
 google-cloud-firestore
 google-cloud-pubsub
 jsonlines
-langchain
+langchain==0.0.138
 pandas
 pinecone-client
+pytube
 requests
 retry
-pytube
 tiktoken
 tqdm
 youtube_transcript_api
