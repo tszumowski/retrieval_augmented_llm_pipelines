@@ -15,9 +15,7 @@ TOP_K = 5  # Number of results to return
 MAX_TEXT_PRINT = 1000  # Max number of characters to print from text
 
 if __name__ == "__main__":
-    sample_query = (
-        "How does Spotify augment training data using session user click history?"
-    )
+    sample_query = "What are some ways to protect from Quantum Computer decryption?"
     print("Query:", sample_query)
 
     # Get API Keys from env
