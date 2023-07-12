@@ -1,96 +1,130 @@
 """
-This script is a simple example of how to use the langchain library
-to run a question answering chain on a query and return the results.
-It is an example of using LLMs for semantic search.
-It is meant to be run from the root of the repo as:
-python scripts/try_langchain.py
+TODO: MISSING METADATA FROM PINECONE!
+
+This script is an example of how to use llama-index library
+to run a retrieval augmented language model (RALM) on a query and return the results.
 
 It leverages the OpenAI API to embed the query and the Pinecone API
-to query the index. It also uses the langchain library to run the
+to query the index. It also uses the llama-index library to run the
 question answering chain on the results using the OpenAI API and the Pinecone
 search results for context.
 
+Setup:
+
+Set OPENAI_API_KEY and pinecone_api_key env variables
+
+Usage:
+
+python scripts/query_semantic_search_llm.py \
+    --query "What are some ways to protect from Quantum Computer decryption?" \
+    --pinecone_index_name "openai-embedding-index" \
+    --pinecone_env_name "us-east1-gcp"
+
 """
+import argparse
 import os
 import pinecone
-import sys
 
-from langchain import OpenAI
-from langchain.chains.question_answering import load_qa_chain
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import Pinecone
+from llama_index.vector_stores import PineconeVectorStore
+from llama_index import VectorStoreIndex
+from llama_index.vector_stores.types import MetadataInfo
 
-# add embedding-indexer to pythonpath for config
-path = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.join(path, "..", "cloud_functions", "embedding-indexer"))
-import config  # NOQA
 
-"""
-INSERT QUERY HERE
-"""
+if __name__ == "__main__":
+    # parse arguments
+    parser = argparse.ArgumentParser(
+        description="Script to test querying pinecone index"
+    )
+    parser.add_argument(
+        "--query",
+        type=str,
+        required=True,
+        help="Query to search, e.g. 'What are some ways to protect from Quantum Computer decryption?'",
+    )
+    parser.add_argument("--embedding_model", type=str, help="text-embedding-ada-002")
+    parser.add_argument(
+        "--pinecone_index_name",
+        type=str,
+        required=True,
+        help="Name of pinecone index",
+    )
+    parser.add_argument(
+        "--pinecone_env_name",
+        type=str,
+        required=True,
+        help="Name of pinecone environment",
+    )
+    parser.add_argument(
+        "--pinecone_namespace",
+        type=str,
+        default=None,
+        help="Namespace of pinecone index",
+    )
+    # top_k, max_text_print
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=5,
+        help="Number of results to return, e.g. 5",
+    )
+    parser.add_argument(
+        "--max_text_print",
+        type=int,
+        default=500,
+        help="Max number of characters to print from each returned text, e.g. 1000",
+    )
+    args = parser.parse_args()
+    query = args.query
+    pinecone_index_name = args.pinecone_index_name
+    pinecone_env_name = args.pinecone_env_name
+    namespace = args.pinecone_namespace
+    top_k = args.top_k
+    max_text_print = args.max_text_print
 
-QUERY = "What are some ways to protect from Quantum Computer decryption?"
+    print(f"\nQuery:\n---\n{query}")
 
-"""
-END INSERT QUERY
-"""
+    # Get API Keys from env
+    pinecone_api_key = os.environ.get("PINECONE_API_KEY")
 
-# Get API Keys from env
-API_KEY_OPENAI = os.environ.get("API_KEY_OPENAI")
-os.environ["OPENAI_API_KEY"] = API_KEY_OPENAI
-API_KEY_PINECONE = os.environ.get("API_KEY_PINECONE")
+    # Initialize Pinecone
+    pinecone.init(environment=pinecone_env_name, api_key=pinecone_api_key)
+    pinecone_index = pinecone.Index(pinecone_index_name)
 
-# Static Config
-model_name = "text-embedding-ada-002"
+    # Initialize vector store
+    vector_store = PineconeVectorStore(
+        pinecone_index=pinecone_index, namespace=namespace
+    )
 
-# Create embedder
-embed = OpenAIEmbeddings(
-    document_model_name=model_name,
-    query_model_name=model_name,
-    openai_api_key=API_KEY_OPENAI,
-)
+    # Build index from existing vector store
+    index = VectorStoreIndex.from_vector_store(
+        vector_store,  # vector_store_info=metadata_fields
+    )
 
-# Initialize Pinecone VectorStore
-pinecone.init(api_key=API_KEY_PINECONE, environment=config.PINECONE_ENV_NAME)
-index = pinecone.Index(config.PINECONE_INDEX_NAME)
-text_field = "text"
-vectorstore = Pinecone(index, embed.embed_query, text_field)
+    # Create engine
+    query_engine = index.as_query_engine(similarity_top_k=top_k)
 
-# Set up chain
-chain = load_qa_chain(
-    OpenAI(), chain_type="stuff"
-)  # we are going to stuff all the docs in at once
+    response = query_engine.query(query)
 
-# Fetch relevant  docs
-print(f"\n\nAsking Third Brain:\n{QUERY}\n...\n")
-docs = vectorstore.similarity_search(QUERY, top_k=5)
+    print("\nResponse:\n---\n")
+    print(response)
 
-# Run chain with relevant docs
-# NOTE: Future release should enrich as part of the system message prompting. TODO.
-enriched_query = f"""
-You are given a question and a set of documents.
-Answer the question in at least four sentences.
-Provide specific examples when possible.
-Cite when possible.
-Prioritize the documents you are provided for context.
-But you otherwise may use other knowledge you have.
+    # Get sources
+    print("\nSources:\n---\n")
+    nodes = response.source_nodes
+    for i, node in enumerate(nodes, 1):
+        # Get shortened source text
+        source_text = node.node.text[2:max_text_print]
 
-This is the question: {QUERY}
-"""
-response = chain.run(input_documents=docs, question=enriched_query)
+        # Get metadata
+        metadata = node.node.extra_info
+        metadata.pop("url_base", None)
+        metadata.pop("n_tokens", None)
+        metadata.pop("duration", None)
 
-# Print response
-print("Answer:\n")
-print(response)
-print("\n\nSources:\n")
-
-for i, doc in enumerate(docs, 1):
-    metadata = doc.metadata
-    print(f"\n{i}:")
-    if "source" in metadata:
-        print(f"\tSource: {metadata['source']}")
-    if "title" in metadata:
-        print(f"\tTitle: {metadata['title']}")
-    if "url" in metadata:
-        print(f"\tURL: {metadata['url']}")
-    print("\n")
+        # pretty print
+        print(f"Source {i}:\n")
+        print(f"Text: {source_text}")
+        print("Metadata:")
+        for k, v in metadata.items():
+            print(f"\t{k}: {v}")
+        print("\n")
