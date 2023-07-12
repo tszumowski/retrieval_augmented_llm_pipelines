@@ -1,6 +1,10 @@
 """
 Simple script to test querying pinecone index
 
+Setup:
+
+Set OPENAI_API_KEY and PINECONE_API_KEY env variables
+
 Usage:
 
 python scripts/query_test.py \
@@ -16,7 +20,7 @@ import os
 import pinecone
 
 if __name__ == "__main__":
-    # arg parse: query, embedding_model, pinecone_index_name, pinecone_env_name
+    # parse arguments
     parser = argparse.ArgumentParser(
         description="Script to test querying pinecone index"
     )
@@ -60,18 +64,16 @@ if __name__ == "__main__":
     top_k = args.top_k
     max_text_print = args.max_text_print
 
-    print("\nQuery:", query)
+    print(f"\nQuery:\n{query}")
 
     # Get API Keys from env
-    API_KEY_OPENAI = os.environ.get("API_KEY_OPENAI")
-    API_KEY_PINECONE = os.environ.get("API_KEY_PINECONE")
+    API_KEY_OPENAI = os.environ.get("OPENAI_API_KEY")
+    API_KEY_PINECONE = os.environ.get("PINECONE_API_KEY")
 
     # Embed query
     openai.api_key = API_KEY_OPENAI
     res = openai.Embedding.create(input=[query], engine=embedding_model)
     query_embedding = res["data"][0]["embedding"]
-
-    print("Query embedding length:", len(query_embedding))
 
     # Query Pinecone
     pinecone.init(api_key=API_KEY_PINECONE, environment=pinecone_env_name)
