@@ -11,7 +11,7 @@ search results for context.
 
 Setup:
 
-Set OPENAI_API_KEY and pinecone_api_key env variables
+Set OPENAI_API_KEY and PINECONE_API_KEY env variables
 
 Usage:
 
@@ -27,7 +27,6 @@ import pinecone
 
 from llama_index.vector_stores import PineconeVectorStore
 from llama_index import VectorStoreIndex
-from llama_index.vector_stores.types import MetadataInfo
 
 
 if __name__ == "__main__":

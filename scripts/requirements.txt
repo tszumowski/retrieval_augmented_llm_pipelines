@@ -1,6 +1,7 @@
 beautifulsoup4
 google-cloud-firestore
 google-cloud-pubsub
+gradio==3.37.0
 jsonlines
 llama-index==0.6.33
 pandas
