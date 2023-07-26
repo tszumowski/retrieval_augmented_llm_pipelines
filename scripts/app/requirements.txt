@@ -1,0 +1,6 @@
+gradio==3.37.0
+llama-index==0.7.11
+pinecone-client
+torch
+tiktoken
+transformers
