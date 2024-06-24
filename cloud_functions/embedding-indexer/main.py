@@ -39,7 +39,7 @@ API_KEY_PINECONE = os.environ["API_KEY_PINECONE"]
 
 # Initialize OpenAI
 openai.api_key = API_KEY_OPENAI
-client = openai.Client()
+client = openai.Client(api_key=API_KEY_OPENAI)
 
 # Initialize Pinecone
 pc = Pinecone(api_key=API_KEY_PINECONE)

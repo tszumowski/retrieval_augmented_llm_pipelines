@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
     # Embed query
     openai.api_key = API_KEY_OPENAI
-    client = openai.Client()
+    client = openai.Client(api_key=API_KEY_OPENAI)
     res = client.embeddings.create(input=[query], model=embedding_model)
     query_embedding = res.data[0].embedding
 
