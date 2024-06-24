@@ -81,7 +81,7 @@ def process_pubsub(cloud_event):
         except Exception as e:
             error_str = str(e)
 
-        if len(res) == 0:
+        if len(res.data) == 0:
             print(f"Unable to embed text chunk #{i}: {error_str}. Skipping.")
             continue
 
