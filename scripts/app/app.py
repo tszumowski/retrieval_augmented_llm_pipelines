@@ -16,32 +16,30 @@ Notes:
     want to swap that out.
 
 """
+
 import argparse
 import gradio as gr
 import os
 import pandas as pd
-import pinecone
+from pinecone import Pinecone
 from typing import Any, Sequence, Tuple
 
-from llama_index.vector_stores import PineconeVectorStore
-from llama_index import VectorStoreIndex, ServiceContext
-from llama_index.llms import OpenAI
+from llama_index.vector_stores.pinecone import PineconeVectorStore
+from llama_index.core import VectorStoreIndex
+from llama_index.llms.openai import OpenAI
 
 """
 USER CONFIG
 """
 
 # Pinecone index to use
-PINECONE_INDEX_NAME = "openai-embedding-index"
+PINECONE_INDEX_NAME = "openai-embedding-index2"
 
 # Pinecone namespace to use
 PINECONE_NAMESPACE = None
 
-# Pinecone environment to use
-PINECONE_ENV_NAME = "us-east1-gcp"
-
 # Which language model to use. See OpenAPI docs for options
-LANGUAGE_MODEL = "gpt-3.5-turbo-16k"
+LANGUAGE_MODEL = "gpt-3.5-turbo"
 
 # Number of retrieved sources to pass in to the LLM
 TOP_K = 5
@@ -77,8 +75,8 @@ INITIALIZE
 pinecone_api_key = os.environ.get("PINECONE_API_KEY")
 
 # Initialize Pinecone
-pinecone.init(environment=PINECONE_ENV_NAME, api_key=pinecone_api_key)
-pinecone_index = pinecone.Index(PINECONE_INDEX_NAME)
+pc = Pinecone(api_key=pinecone_api_key)
+pinecone_index = pc.Index(PINECONE_INDEX_NAME)
 
 # Initialize vector store
 vector_store = PineconeVectorStore(
@@ -90,12 +88,9 @@ index = VectorStoreIndex.from_vector_store(vector_store)
 
 # Create language model and bind to service context
 gpt_model = OpenAI(temperature=0, model=LANGUAGE_MODEL)
-service_context_gpt = ServiceContext.from_defaults(llm=gpt_model)
 
 # Create engine
-query_engine = index.as_query_engine(
-    service_context=service_context_gpt, similarity_top_k=TOP_K
-)
+query_engine = index.as_query_engine(llm=gpt_model, similarity_top_k=TOP_K)
 
 """
 FUNCTIONS AND START

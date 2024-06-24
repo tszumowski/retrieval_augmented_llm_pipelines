@@ -10,14 +10,14 @@ Usage:
 python scripts/query_test.py \
     --query "What are some ways to protect from Quantum Computer decryption?" \
     --embedding_model "text-embedding-ada-002" \
-    --pinecone_index_name "openai-embedding-index" \
-    --pinecone_env_name "us-east1-gcp"
+    --pinecone_index_name "openai-embedding-index2"
 """
+
 # add embedding-indexer to pythonpath
 import argparse
 import openai
 import os
-import pinecone
+from pinecone import Pinecone
 
 if __name__ == "__main__":
     # parse arguments
@@ -28,20 +28,22 @@ if __name__ == "__main__":
         "--query",
         type=str,
         required=True,
-        help="Query to search, e.g. 'What are some ways to protect from Quantum Computer decryption?'",
+        help=(
+            "Query to search, e.g. 'What are some ways to protect from Quantum "
+            "Computer decryption?'"
+        ),
     )
-    parser.add_argument("--embedding_model", type=str, help="text-embedding-ada-002")
+    parser.add_argument(
+        "--embedding_model",
+        type=str,
+        help="text-embedding-ada-002",
+        default="text-embedding-ada-002",
+    )
     parser.add_argument(
         "--pinecone_index_name",
         type=str,
         required=True,
         help="Name of pinecone index",
-    )
-    parser.add_argument(
-        "--pinecone_env_name",
-        type=str,
-        required=True,
-        help="Name of pinecone environment",
     )
     # top_k, max_text_print
     parser.add_argument(
@@ -60,7 +62,6 @@ if __name__ == "__main__":
     query = args.query
     embedding_model = args.embedding_model
     pinecone_index_name = args.pinecone_index_name
-    pinecone_env_name = args.pinecone_env_name
     top_k = args.top_k
     max_text_print = args.max_text_print
 
@@ -72,17 +73,18 @@ if __name__ == "__main__":
 
     # Embed query
     openai.api_key = API_KEY_OPENAI
-    res = openai.Embedding.create(input=[query], engine=embedding_model)
-    query_embedding = res["data"][0]["embedding"]
+    client = openai.Client(api_key=API_KEY_OPENAI)
+    res = client.embeddings.create(input=[query], model=embedding_model)
+    query_embedding = res.data[0].embedding
 
     # Query Pinecone
-    pinecone.init(api_key=API_KEY_PINECONE, environment=pinecone_env_name)
-    index = pinecone.Index(pinecone_index_name)
+    pc = Pinecone(api_key=API_KEY_PINECONE)
+    index = pc.Index(pinecone_index_name)
     print("\n\n")
     print(f"Index Stats:")
     print(index.describe_index_stats())
     print("\n\n")
-    res = index.query([query_embedding], top_k=top_k, include_metadata=True)
+    res = index.query(vector=[query_embedding], top_k=top_k, include_metadata=True)
 
     # Print
     matches = res["matches"]
