@@ -3,15 +3,16 @@ Exports all IDs from Pinecone index to a CSV lines file, and vectors to jsonline
 Since at the time of writing there was no easy way to fetch all IDs, it needs
 to query iteratively until **most** idS are found.
 """
+
 import jsonlines
 import os
-import pinecone
+from pinecone import Pinecone
 import random
 import time
 from tqdm import tqdm
 
-index_name = "openai-embedding-index"  # Replace INDEX_NAME with the name of the index you want to export vectors from
-env_name = "us-east1-gcp"
+# Replace with the name of the index you want to export vectors from
+index_name = "openai-embedding-index2"
 max_attempts = 50  # Max number of attempts to find all IDs
 top_k = 10000  # Max allowed by Pinecone
 fetch_chunk_size = 500  # Max allowed by Pinecone is 1000 I believe
@@ -26,10 +27,10 @@ input_ids_filename = f"ids-{index_name}.csv"
 
 # Initialize Pinecone
 api_key = os.environ.get("API_KEY_PINECONE")
-pinecone.init(api_key=api_key, environment=env_name)
+pc = Pinecone(api_key=api_key)
 
 # Connect to index
-index = pinecone.Index(index_name)
+index = pc.Index(index_name)
 
 # Print output
 index_stats = index.describe_index_stats()
@@ -57,7 +58,9 @@ else:
     attempts = 0
     while len(ids_found) < total_ids and attempts < max_attempts:
         # Fetch some IDs
-        results = index.query([query_embedding], top_k=top_k, include_metadata=False)
+        results = index.query(
+            vector=[query_embedding], top_k=top_k, include_metadata=False
+        )
         ids = [result["id"] for result in results["matches"]]
 
         # Add all unique IDs to the list that don't overlap
@@ -68,7 +71,7 @@ else:
 
         # choose the next random embedding from this output
         rand_id = random.choice(ids_found)
-        r = index.fetch([rand_id])
+        r = index.fetch(ids=[rand_id])
         query_embedding = r["vectors"][rand_id]["values"]
 
     print(f"Executed {attempts} attempts of {max_attempts} allowed to find all IDs")
@@ -85,7 +88,7 @@ with jsonlines.open(output_filename_vectors, "w") as writer:
     for i in tqdm(range(0, len(ids_found), fetch_chunk_size)):
         ids_chunk = ids_found[i : i + fetch_chunk_size]
         results = index.fetch(
-            ids_chunk,
+            ids=ids_chunk,
         )
         vectors = results["vectors"]
         for id, vector in vectors.items():

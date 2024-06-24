@@ -7,8 +7,9 @@ If you do not, run something like the following:
 
 ```
     # Create Pinecone index, if it doesn't exist. And connect.
-    if config.PINECONE_INDEX_NAME not in pinecone.list_indexes():
-        pinecone.create_index(
+    if config.PINECONE_INDEX_NAME not in pc.list_indexes():
+        # See API for proper spec fo rthis now
+        pc.create_index(
             config.PINECONE_INDEX_NAME, dimension=len(embedding_batches[0][0])
         )
 ```
@@ -23,7 +24,7 @@ import hashlib
 import json
 import openai
 import os
-import pinecone
+from pinecone import Pinecone
 from smart_open import open
 import time
 from tokenization import tiktoken_len, split_by_tokenization
@@ -38,9 +39,10 @@ API_KEY_PINECONE = os.environ["API_KEY_PINECONE"]
 
 # Initialize OpenAI
 openai.api_key = API_KEY_OPENAI
+client = openai.Client()
 
 # Initialize Pinecone
-pinecone.init(api_key=API_KEY_PINECONE, environment=config.PINECONE_ENV_NAME)
+pc = Pinecone(api_key=API_KEY_PINECONE)
 
 
 # Triggered from a message on a Cloud Pub/Sub topic.
@@ -75,7 +77,7 @@ def process_pubsub(cloud_event):
         res = list()
 
         try:
-            res = openai.Embedding.create(input=text, engine=config.EMBEDDING_MODEL)
+            res = client.embeddings.create(input=text, model=config.EMBEDDING_MODEL)
         except Exception as e:
             error_str = str(e)
 
@@ -83,7 +85,7 @@ def process_pubsub(cloud_event):
             print(f"Unable to embed text chunk #{i}: {error_str}. Skipping.")
             continue
 
-        embedding = res["data"][0]["embedding"]
+        embedding = res.data[0].embedding
 
         # Append to list
         processed_chunks.append((chunk, embedding))
@@ -95,7 +97,7 @@ def process_pubsub(cloud_event):
     """
 
     # Connect to index
-    index = pinecone.Index(config.PINECONE_INDEX_NAME)
+    index = pc.Index(config.PINECONE_INDEX_NAME)
 
     # Add to index in batches
     processed_vector_cnt = 0

@@ -3,7 +3,7 @@
 This script is an example of how to use llama-index library
 to have a vector-store index backed chat agent.
 
-The chat agent defaults to ReACT type using gpt-3.5-turbo-16k model.
+The chat agent defaults to ReACT type using gpt-3.5-turbo model.
 It does NOT provide sources like query_engine.
 
 See https://gpt-index.readthedocs.io/en/latest/core_modules/query_modules/chat_engines/usage_pattern.html#available-chat-modes.
@@ -17,14 +17,15 @@ Usage:
 Basically same as query_semantic_search_llm.py without the --query argument.
 Try first with --help
 
-"""
+"""  # noqa
+
 import argparse
 import os
-import pinecone
+from pinecone import Pinecone
 
-from llama_index.vector_stores import PineconeVectorStore
-from llama_index import VectorStoreIndex, ServiceContext
-from llama_index.llms import OpenAI
+from llama_index.vector_stores.pinecone import PineconeVectorStore
+from llama_index.core import VectorStoreIndex
+from llama_index.llms.openai import OpenAI
 
 if __name__ == "__main__":
     # parse arguments
@@ -36,12 +37,6 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="Name of pinecone index",
-    )
-    parser.add_argument(
-        "--pinecone_env_name",
-        type=str,
-        required=True,
-        help="Name of pinecone environment",
     )
     parser.add_argument(
         "--pinecone_namespace",
@@ -62,16 +57,15 @@ if __name__ == "__main__":
         default=500,
         help="Max number of characters to print from each returned text, e.g. 1000",
     )
-    # add optional language_model, defaulting to gpt-3.5-turbo-16k
+    # add optional language_model, defaulting to gpt-3.5-turbo
     parser.add_argument(
         "--language_model",
         type=str,
-        default="gpt-3.5-turbo-16k",
-        help="Name of language model to use, e.g. gpt-3.5-turbo-16k",
+        default="gpt-3.5-turbo",
+        help="Name of language model to use, e.g. gpt-3.5-turbo",
     )
     args = parser.parse_args()
     pinecone_index_name = args.pinecone_index_name
-    pinecone_env_name = args.pinecone_env_name
     namespace = args.pinecone_namespace
     top_k = args.top_k
     max_text_print = args.max_text_print
@@ -81,8 +75,8 @@ if __name__ == "__main__":
     pinecone_api_key = os.environ.get("PINECONE_API_KEY")
 
     # Initialize Pinecone
-    pinecone.init(environment=pinecone_env_name, api_key=pinecone_api_key)
-    pinecone_index = pinecone.Index(pinecone_index_name)
+    pc = Pinecone(api_key=pinecone_api_key)
+    pinecone_index = pc.Index(pinecone_index_name)
 
     # Initialize vector store
     vector_store = PineconeVectorStore(
@@ -96,12 +90,9 @@ if __name__ == "__main__":
 
     # Create language model and bind to service context
     gpt_model = OpenAI(temperature=0, model=language_model)
-    service_context_gpt = ServiceContext.from_defaults(llm=gpt_model)
 
     # Create engine
-    chat_engine = index.as_chat_engine(
-        service_context=service_context_gpt, verbose=True
-    )
+    chat_engine = index.as_chat_engine(llm=gpt_model, verbose=True)
 
     # Start interactive chat
     chat_engine.chat_repl()

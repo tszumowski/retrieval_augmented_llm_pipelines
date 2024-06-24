@@ -15,17 +15,17 @@ Usage:
 
 python scripts/query_semantic_search_llm.py \
     --query "What are some ways to protect from Quantum Computer decryption?" \
-    --pinecone_index_name "openai-embedding-index" \
-    --pinecone_env_name "us-east1-gcp"
+    --pinecone_index_name "openai-embedding-index2"
 
 """
+
 import argparse
 import os
-import pinecone
+from pinecone import Pinecone
 
-from llama_index.vector_stores import PineconeVectorStore
-from llama_index import VectorStoreIndex, ServiceContext
-from llama_index.llms import OpenAI
+from llama_index.vector_stores.pinecone import PineconeVectorStore
+from llama_index.core import VectorStoreIndex
+from llama_index.llms.openai import OpenAI
 
 
 if __name__ == "__main__":
@@ -37,19 +37,16 @@ if __name__ == "__main__":
         "--query",
         type=str,
         required=True,
-        help="Query to search, e.g. 'What are some ways to protect from Quantum Computer decryption?'",
+        help=(
+            "Query to search, e.g. 'What are some ways to protect from Quantum "
+            "Computer decryption?'"
+        ),
     )
     parser.add_argument(
         "--pinecone_index_name",
         type=str,
         required=True,
         help="Name of pinecone index",
-    )
-    parser.add_argument(
-        "--pinecone_env_name",
-        type=str,
-        required=True,
-        help="Name of pinecone environment",
     )
     parser.add_argument(
         "--pinecone_namespace",
@@ -70,17 +67,16 @@ if __name__ == "__main__":
         default=500,
         help="Max number of characters to print from each returned text, e.g. 1000",
     )
-    # add optional language_model, defaulting to gpt-3.5-turbo-16k
+    # add optional language_model, defaulting to gpt-3.5-turbo
     parser.add_argument(
         "--language_model",
         type=str,
-        default="gpt-3.5-turbo-16k",
-        help="Name of language model to use, e.g. gpt-3.5-turbo-16k",
+        default="gpt-3.5-turbo",
+        help="Name of language model to use, e.g. gpt-3.5-turbo",
     )
     args = parser.parse_args()
     query = args.query
     pinecone_index_name = args.pinecone_index_name
-    pinecone_env_name = args.pinecone_env_name
     namespace = args.pinecone_namespace
     top_k = args.top_k
     max_text_print = args.max_text_print
@@ -92,8 +88,8 @@ if __name__ == "__main__":
     pinecone_api_key = os.environ.get("PINECONE_API_KEY")
 
     # Initialize Pinecone
-    pinecone.init(environment=pinecone_env_name, api_key=pinecone_api_key)
-    pinecone_index = pinecone.Index(pinecone_index_name)
+    pc = Pinecone(api_key=pinecone_api_key)
+    pinecone_index = pc.Index(pinecone_index_name)
 
     # Initialize vector store
     vector_store = PineconeVectorStore(
@@ -105,12 +101,9 @@ if __name__ == "__main__":
 
     # Create language model and bind to service context
     gpt_model = OpenAI(temperature=0, model=language_model)
-    service_context_gpt = ServiceContext.from_defaults(llm=gpt_model)
 
     # Create engine
-    query_engine = index.as_query_engine(
-        service_context=service_context_gpt, similarity_top_k=top_k
-    )
+    query_engine = index.as_query_engine(llm=gpt_model, similarity_top_k=top_k)
 
     response = query_engine.query(query)
 
