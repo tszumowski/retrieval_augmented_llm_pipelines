@@ -1,5 +1,5 @@
-langchain==0.0.230
-openai==0.27.8
-pinecone-client==2.2.2
+langchain==0.2.5
+openai==1.35.3
+pinecone-client==3.2.2
 smart_open[gcs]==6.3.0
-tiktoken==0.4.0
+tiktoken==0.7.0
