@@ -51,7 +51,7 @@ MAX_TEXT_PRINT = 4000
 SHOW_SOURCES = True
 
 # Table headers
-TABLE_HEADERS = ("Source", "Channel", "Title", "URL", "Snippet")
+TABLE_HEADERS = ("Publish Date", "Source", "Channel", "Title", "URL", "Snippet")
 
 # Base prompt to hack together conversational history
 BASE_PROMPT = """
@@ -141,6 +141,7 @@ def ask_question(
 
         # add a row to dataframe
         source_data.loc[i] = [
+            metadata.get("publish_date"),
             metadata.get("source"),
             metadata.get("channel"),
             metadata.get("title"),
