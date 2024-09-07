@@ -39,13 +39,13 @@ PINECONE_INDEX_NAME = "openai-embedding-index2"
 PINECONE_NAMESPACE = None
 
 # Which language model to use. See OpenAPI docs for options
-LANGUAGE_MODEL = "gpt-3.5-turbo"
+LANGUAGE_MODEL = "gpt-4o-mini"
 
 # Number of retrieved sources to pass in to the LLM
-TOP_K = 5
+TOP_K = 20
 
 # Max number of characters to print for each source shown
-MAX_TEXT_PRINT = 1000
+MAX_TEXT_PRINT = 4000
 
 # Flag to show sources or not
 SHOW_SOURCES = True
