@@ -3,7 +3,7 @@
 This script is an example of how to use llama-index library
 to have a vector-store index backed chat agent.
 
-The chat agent defaults to ReACT type using gpt-3.5-turbo model.
+The chat agent defaults to ReACT type using gpt-4o-mini model.
 It does NOT provide sources like query_engine.
 
 See https://gpt-index.readthedocs.io/en/latest/core_modules/query_modules/chat_engines/usage_pattern.html#available-chat-modes.
@@ -48,27 +48,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--top_k",
         type=int,
-        default=5,
-        help="Number of results to return, e.g. 5",
+        default=20,
+        help="Number of results to return, e.g. 20",
     )
-    parser.add_argument(
-        "--max_text_print",
-        type=int,
-        default=500,
-        help="Max number of characters to print from each returned text, e.g. 1000",
-    )
-    # add optional language_model, defaulting to gpt-3.5-turbo
+    # add optional language_model, defaulting to gpt-4o-mini
     parser.add_argument(
         "--language_model",
         type=str,
-        default="gpt-3.5-turbo",
-        help="Name of language model to use, e.g. gpt-3.5-turbo",
+        default="gpt-4o-mini",
+        help="Name of language model to use, e.g. gpt-4o-mini",
     )
     args = parser.parse_args()
     pinecone_index_name = args.pinecone_index_name
     namespace = args.pinecone_namespace
     top_k = args.top_k
-    max_text_print = args.max_text_print
     language_model = args.language_model
 
     # Get API Keys from env

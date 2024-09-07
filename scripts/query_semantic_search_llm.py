@@ -58,21 +58,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--top_k",
         type=int,
-        default=5,
-        help="Number of results to return, e.g. 5",
+        default=20,
+        help="Number of results to return, e.g. 20",
     )
     parser.add_argument(
         "--max_text_print",
         type=int,
-        default=500,
-        help="Max number of characters to print from each returned text, e.g. 1000",
+        default=4000,
+        help="Max number of characters to print from each returned text, e.g. 4000",
     )
-    # add optional language_model, defaulting to gpt-3.5-turbo
+    # add optional language_model, defaulting to gpt-4o-mini
     parser.add_argument(
         "--language_model",
         type=str,
-        default="gpt-3.5-turbo",
-        help="Name of language model to use, e.g. gpt-3.5-turbo",
+        default="gpt-4o-mini",
+        help="Name of language model to use, e.g. gpt-4o-mini",
     )
     args = parser.parse_args()
     query = args.query
